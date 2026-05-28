@@ -2,7 +2,7 @@
 
 # pi-runcat
 
-Is a runcat port for `PI` for your loading bar
+Is a running cat🐱 for your `PI` loading bar
 
 (Yet another useless cat here..)
 
