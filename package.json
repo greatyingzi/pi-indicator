@@ -4,6 +4,14 @@
   "description": "running cat working indicator extension for Pi.",
   "type": "module",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FredySandoval/pi-runcat.git"
+  },
+  "bugs": {
+    "url": "https://github.com/FredySandoval/pi-runcat/issues"
+  },
+  "homepage": "https://github.com/FredySandoval/pi-runcat#readme",
   "keywords": [
     "pi",
     "pi-package",
