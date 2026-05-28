@@ -10,6 +10,7 @@ Is a runcat port for `PI` for your loading bar
 ```bash
 wget -P ~/.local/share/fonts "https://github.com/FredySandoval/pi-runcat/raw/refs/heads/main/runcat.ttf"
 pi install npm:pi-runcat
+fc-cache -f
 ```
 
 ## Manual Installation
