@@ -11,6 +11,12 @@ Is a running cat🐱 for your `PI` loading bar
 wget -P ~/.local/share/fonts "https://github.com/FredySandoval/pi-runcat/raw/refs/heads/main/runcat.ttf"
 pi install npm:pi-runcat
 fc-cache -f
+
+# MacOS
+curl -L -o ~/Library/Fonts/runcat.ttf "https://github.com/FredySandoval/pi-runcat/raw/refs/heads/main/runcat.ttf"
+# Then restart the app that needs the font. 
+# If it still does not appear, you can refresh macOS font caches with:
+atsutil databases -removeUser
 ```
 
 ## Manual Installation
