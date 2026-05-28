@@ -1,5 +1,5 @@
 {
-  "name": "09_pi-runcat",
+  "name": "pi-runcat",
   "version": "1.0.0",
   "keywords": [],
   "author": "",
@@ -7,5 +7,11 @@
   "type": "module",
   "pi": {
     "extensions": ["./pi-runcat.ts"]
-  }
+    "image": "https://github.com/FredySandoval/pi-runcat/raw/refs/heads/main/runcat.gif"
+  },
+  "keywords": [
+    "pi",
+    "pi-package",
+    "pi-extension",
+  ],
 }

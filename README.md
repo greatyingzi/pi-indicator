@@ -6,12 +6,15 @@ Is a runcat port for `PI` for your loading bar
 
 (Yet another useless cat here..)
 
-pi install 
+## pi install 
 ```bash
+wget -P ~/.local/share/fonts "https://github.com/FredySandoval/pi-runcat/raw/refs/heads/main/runcat.ttf"
 pi install npm:pi-runcat
 ```
 
-## font installation
+## Manual Installation
+
+Font installation
 
 ```bash
 cp -r runcat.ttf ~/.local/share/fonts
