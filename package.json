@@ -1,17 +1,28 @@
 {
   "name": "pi-runcat",
   "version": "1.0.0",
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "description": "running cat working indicator extension for Pi.",
   "type": "module",
-  "pi": {
-    "extensions": ["./pi-runcat.ts"]
-    "image": "https://github.com/FredySandoval/pi-runcat/raw/refs/heads/main/runcat.gif"
-  },
+  "license": "ISC",
   "keywords": [
     "pi",
     "pi-package",
     "pi-extension",
+    "runcat"
   ],
+  "files": [
+    "pi-runcat.ts",
+    "runcat.gif",
+    "runcat.ttf",
+    "README.md"
+  ],
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./pi-runcat.ts"
+    ],
+    "image": "https://github.com/FredySandoval/pi-runcat/raw/refs/heads/main/runcat.gif"
+  }
 }
