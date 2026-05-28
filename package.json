@@ -1,6 +1,6 @@
 {
   "name": "pi-runcat",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "running cat working indicator extension for Pi.",
   "type": "module",
   "license": "ISC",
