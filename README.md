@@ -22,8 +22,10 @@ cp -r runcat.ttf ~/.local/share/fonts
 fc-cache -f
 ```
 
-## font uninstall 
+##  uninstall 
 ```bash
+pi remove npm:pi-runcat
+
 rm -r ~/.local/share/fonts/runcat.ttf
 fc-cache -f
 ```
