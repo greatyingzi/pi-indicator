@@ -1,0 +1,11 @@
+{
+  "name": "09_pi-runcat",
+  "version": "1.0.0",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "pi": {
+    "extensions": ["./pi-runcat.ts"]
+  }
+}
