@@ -40,5 +40,4 @@ fc-cache -f
 Inspired by [runcat-text](https://github.com/bzglve/runcat-text)
 
 Security:
-file hash: sha256:3c5be14dc51cd0d21b34cbd40fe147ff61480ce03655eb43571008975b395d94
 [security check](https://www.virustotal.com/gui/file/3c5be14dc51cd0d21b34cbd40fe147ff61480ce03655eb43571008975b395d94/community)
