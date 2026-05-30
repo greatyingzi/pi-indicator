@@ -17,6 +17,9 @@ curl -L -o ~/Library/Fonts/runcat.ttf "https://github.com/FredySandoval/pi-runca
 # Then restart the app that needs the font. 
 # If it still does not appear, you can refresh macOS font caches with:
 atsutil databases -removeUser
+
+# Test in your terminal if font is rendered correctly
+echo "         "
 ```
 
 ## Manual Installation
