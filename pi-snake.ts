@@ -569,38 +569,62 @@ function stopAnimation() {
 // ─── Extension Entry ────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
+  // Keep a reference to the UI context from session_start
+  let uiCtx: ExtensionUIContext | null = null;
+
   pi.on("session_start", async (_event, ctx) => {
     if (!ctx.hasUI) return;
+    uiCtx = ctx.ui;
     startAnimation("snake", ctx);
   });
 
   pi.on("session_shutdown", async () => {
     stopAnimation();
+    uiCtx = null;
   });
 
+  // Register /snake with subcommand args, or /snake as selector
   pi.registerCommand("snake", {
-    description: "Switch working indicator animation (snake/pong/tetris/bounce/wave/firefly)",
-    handler: async (ctx) => {
+    description: "Switch animation: /snake <snake|pong|tetris|bounce|wave|firefly> or /snake to pick",
+    handler: async (ctx: any) => {
+      // Use the saved UI context if command ctx doesn't have ui
+      const ui = ctx.ui ?? uiCtx;
+      if (!ui) return;
+
+      // Check if args were passed as subcommand
+      const args: string | undefined = ctx.args;
+      if (args) {
+        const target = args.trim().toLowerCase();
+        const found = ANIM_LIST.find(a => a.id === target);
+        if (found) {
+          stopAnimation();
+          startAnimation(found.id, { ui, hasUI: true, signal: undefined } as any);
+          ui.notify(`Switched to ${found.label}`);
+          return;
+        }
+      }
+
+      // No valid subcommand — show select menu
       const currentLabel = ANIM_LIST.find(a => a.id === globalState?.current)?.label ?? "Snake 🐍";
 
       const options = ANIM_LIST.map(a =>
         a.id === globalState?.current ? `→ ${a.label} (current)` : `  ${a.label}`
       );
 
-      const choice = await ctx.ui.select(
+      const choice = await ui.select(
         `Current: ${currentLabel} — Pick an animation:`,
         options,
       );
 
       if (!choice) return;
 
-      // Find which animation was selected
       const idx = options.indexOf(choice);
       if (idx < 0) return;
 
       const selected = ANIM_LIST[idx];
-      if (selected && ctx.hasUI) {
-        startAnimation(selected.id, ctx);
+      if (selected) {
+        stopAnimation();
+        startAnimation(selected.id, { ui, hasUI: true, signal: undefined } as any);
       }
     },
   });
