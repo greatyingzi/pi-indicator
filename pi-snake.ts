@@ -5,14 +5,14 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 // ─── Braille primitives ─────────────────────────────────────────────
-// 4 braille chars side-by-side → 8 cols × 4 rows
+// 8 braille chars side-by-side → 16 cols × 4 rows
 
 const DOT_MAP: Record<string, number> = {
   "0,0": 0x01, "1,0": 0x02, "2,0": 0x04, "3,0": 0x40,
   "0,1": 0x08, "1,1": 0x10, "2,1": 0x20, "3,1": 0x80,
 };
 
-const W = 8, H = 4;
+const W = 16, H = 4;
 const BRAILLE_OFFSET = 0x2800;
 const EMPTY_BRAILLE = "\u2800";
 const RESET = "\x1b[0m";
@@ -99,7 +99,7 @@ function bfsNext(head: string, food: string, occupied: Set<string>): string | nu
 }
 
 class SnakeAnimation {
-  private snake = ["1,6", "1,5", "1,4", "1,3"];
+  private snake = ["1,10", "1,9", "1,8", "1,7"];
   private food: string;
   private foodColor: number;
 
@@ -144,15 +144,15 @@ class SnakeAnimation {
 // Bricks on the LEFT wall, paddle on the RIGHT, ball bounces horizontally
 
 class BreakoutAnimation {
-  // Bricks: stored as Set, left-side columns 0-2
+  // Bricks: stored as Set, left-side columns 0-5
   private bricks: Set<string>;
-  // Paddle: right side, vertical 2-dot paddle at col 7
+  // Paddle: right side, vertical 2-dot paddle at col 15
   private paddle: number = 1; // top row of paddle (rows paddle, paddle+1)
   // Ball: floating point position
   private br: number = 1.5;
-  private bc: number = 5;
+  private bc: number = 10;
   private vr: number = 0.4;
-  private vc: number = -0.7;
+  private vc: number = -0.9;
 
   constructor() {
     this.bricks = new Set<string>();
@@ -161,8 +161,8 @@ class BreakoutAnimation {
 
   private resetBricks() {
     this.bricks.clear();
-    // Fill columns 0-2, all 4 rows
-    for (let c = 0; c <= 2; c++)
+    // Fill columns 0-5, all 4 rows
+    for (let c = 0; c <= 5; c++)
       for (let r = 0; r < H; r++)
         this.bricks.add(`${r},${c}`);
   }
@@ -177,7 +177,7 @@ class BreakoutAnimation {
     if (this.br >= H - 1) { this.br = H - 1; this.vr = -Math.abs(this.vr); }
 
     // Bounce off left wall (or hit brick)
-    if (this.bc <= 2) {
+    if (this.bc <= 5) {
       const hitR = Math.round(this.br);
       const hitC = Math.round(this.bc);
       // Check brick at hit position and neighbors
@@ -205,16 +205,16 @@ class BreakoutAnimation {
         this.bc = W - 1.5;
         this.vc = -Math.abs(this.vc);
         // Angle based on where it hit the paddle
-        const offset = (this.br - (this.paddle + 0.5)) * 0.3;
+        const offset = (this.br - (this.paddle + 0.5)) * 0.25;
         this.vr += offset;
         // Clamp vr
         this.vr = Math.max(-0.6, Math.min(0.6, this.vr));
       } else {
         // Missed! Reset
         this.br = 1 + Math.random() * 2;
-        this.bc = 5;
+        this.bc = 10;
         this.vr = (Math.random() - 0.5) * 0.4;
-        this.vc = -0.7;
+        this.vc = -0.9;
         // If all bricks gone, regenerate
         if (this.bricks.size === 0) this.resetBricks();
         return this.buildFrame();
@@ -255,7 +255,7 @@ class BreakoutAnimation {
 
 class PacManAnimation {
   // Pac-Man world position (viewport slides right)
-  private worldCol: number = 3;
+  private worldCol: number = 5;
   private pacRow: number = 2;
   private mouthPhase: number = 0;
 
@@ -273,8 +273,8 @@ class PacManAnimation {
       }
     }
     this.ghosts = [
-      { r: 1, wc: this.worldCol - 4, color: "\x1b[38;5;196m" },  // red
-      { r: 3, wc: this.worldCol - 6, color: "\x1b[38;5;214m" },  // orange
+      { r: 1, wc: this.worldCol - 7, color: "\x1b[38;5;196m" },  // red
+      { r: 3, wc: this.worldCol - 10, color: "\x1b[38;5;214m" }, // orange
     ];
   }
 
@@ -318,7 +318,7 @@ class PacManAnimation {
     const ghostColored = new Set<string>();
 
     // Viewport: worldCol is pac-man's position, render cols [worldCol-2 .. worldCol+5]
-    const viewLeft = this.worldCol - 2;
+    const viewLeft = this.worldCol - 4;
 
     // Dots
     for (const key of this.dots) {
@@ -327,8 +327,8 @@ class PacManAnimation {
       if (vc >= 0 && vc < W) grid.add(`${r},${vc}`);
     }
 
-    // Pac-Man: always at viewport col 2
-    const pacKey = `${this.pacRow},2`;
+    // Pac-Man: always at viewport col 4
+    const pacKey = `${this.pacRow},4`;
     grid.add(pacKey);
     pacColored.add(pacKey);
 
