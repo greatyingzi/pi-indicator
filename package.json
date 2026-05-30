@@ -1,7 +1,7 @@
 {
   "name": "pi-snake",
   "version": "1.0.0",
-  "description": "Snake game working indicator extension for Pi.",
+  "description": "Animated working indicator extension for Pi — 6 built-in animations: Snake, Pong, Tetris, Bouncing Ball, Sine Wave, Fireflies.",
   "type": "module",
   "license": "0BSD",
   "repository": {
