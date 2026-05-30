@@ -4,22 +4,25 @@ import type {
   WorkingIndicatorOptions,
 } from "@earendil-works/pi-coding-agent";
 
+// Single braille char (2x4 dot grid) Tetris animation
+// ⢀⢠⢰⢸⣼⣾⣿ = pieces stack up row by row
+// ⠀⣿ flashing = row clear
 const TETRIS_INDICATOR: WorkingIndicatorOptions = {
   frames: [
-    // Pieces land (each jump = a different piece)
-    "░░░░░░░░░█",
-    "░░░░░░░███",
-    "░░░░░░████",
-    "░░░░██████",
-    "░░████████",
-    "██████████",
-    // Row complete! Flash & clear
-    "▓▓▓▓▓▓▓▓▓▓",
-    "██████████",
-    "▓▓▓▓▓▓▓▓▓▓",
-    "░░░░░░░░░░",
+    "\u2880", // ⢀  piece drops
+    "\u28A0", // ⢠  stacks
+    "\u28B0", // ⢰  stacks
+    "\u28B8", // ⢸  right column full
+    "\u28FC", // ⣼  left fills
+    "\u28FE", // ⣾  left fills
+    "\u28FF", // ⣿  FULL!
+    "\u2800", // ⠀  flash
+    "\u28FF", // ⣿
+    "\u2800", // ⠀  flash
+    "\u28FF", // ⣿
+    "\u2800", // ⠀  cleared
   ],
-  intervalMs: 130,
+  intervalMs: 120,
 };
 
 function applyTetrisIndicator(ctx: ExtensionContext) {
