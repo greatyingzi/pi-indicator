@@ -49,21 +49,16 @@ function renderFrame(snake: Set<string>, food: string, foodColor: number): strin
     }
 
     if (foodInThisChar) {
-      // Food dot only (without snake body in this char)
-      let foodVal = DOT_MAP[`${foodR},${foodC - cx}`];
+      const foodVal = DOT_MAP[`${foodR},${foodC - cx}`];
+      const merged = snakeVal | foodVal;
 
       if (hasSnake) {
-        // Both food and snake in this char — render separately
-        // Snake char (no food dot) then food char (colored)
-        // But we can only show one char here... so overlay: food on top
-        // Render as: colored food dot merged into the char
-        const merged = snakeVal | foodVal;
+        // Food + snake share this char — no color (ANSI can't color single dots)
+        parts.push(String.fromCharCode(0x2800 + merged));
+      } else {
+        // Only food in this char — safe to color
         const color = FOOD_COLORS[foodColor % FOOD_COLORS.length];
         parts.push(`${color}${String.fromCharCode(0x2800 + merged)}${RESET}`);
-      } else {
-        // Only food in this char
-        const color = FOOD_COLORS[foodColor % FOOD_COLORS.length];
-        parts.push(`${color}${String.fromCharCode(0x2800 + foodVal)}${RESET}`);
       }
     } else if (hasSnake) {
       // Only snake in this char
