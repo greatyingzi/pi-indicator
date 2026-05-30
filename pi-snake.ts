@@ -5,7 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 
 // Real-time Snake game on 8x4 braille grid with colored food
-// Runs dynamically via setInterval — no pre-generated frames
+// Only the food dot is colored, snake body stays default
 
 const DOT_MAP: Record<string, number> = {
   "0,0": 0x01, "1,0": 0x02, "2,0": 0x04, "3,0": 0x40,
@@ -15,9 +15,8 @@ const DOT_MAP: Record<string, number> = {
 const W = 8, H = 4;
 const DIRS = [[0,1],[0,-1],[1,0],[-1,0]];
 
-// ANSI 256-color palette for food (bright, vivid colors)
 const FOOD_COLORS = [
-  "\x1b[38;5;196m", // bright red 🍎
+  "\x1b[38;5;196m", // red 🍎
   "\x1b[38;5;226m", // yellow 🍋
   "\x1b[38;5;46m",  // green 🍏
   "\x1b[38;5;213m", // pink 🍑
@@ -27,43 +26,51 @@ const FOOD_COLORS = [
 ];
 const RESET = "\x1b[0m";
 
-function toBraille(grid: Set<string>): string {
-  const chars: string[] = [];
-  for (let cx = 0; cx < W; cx += 2) {
-    let val = 0;
-    for (let r = 0; r < H; r++) {
-      for (let c = 0; c < 2; c++) {
-        if (grid.has(`${r},${cx + c}`)) {
-          val |= DOT_MAP[`${r},${c}`];
-        }
-      }
-    }
-    chars.push(String.fromCharCode(0x2800 + val));
-  }
-  return chars.join("");
-}
-
-function toBrailleColored(snakeGrid: Set<string>, food: string, colorIdx: number): string {
+function renderFrame(snake: Set<string>, food: string, foodColor: number): string {
   const [foodR, foodC] = food.split(",").map(Number);
-  const foodCharIdx = Math.floor(foodC / 2); // which braille char contains the food
-  const color = FOOD_COLORS[colorIdx % FOOD_COLORS.length];
 
+  // Build per-char: split into 4 braille chars (each covers 2 cols)
   const parts: string[] = [];
   for (let cx = 0; cx < W; cx += 2) {
-    let val = 0;
+    const charIdx = Math.floor(cx / 2);
+
+    // Check if food is in this braille char's 2-col range
+    const foodInThisChar = (foodC >= cx && foodC < cx + 2);
+
+    let snakeVal = 0;
+    let hasSnake = false;
     for (let r = 0; r < H; r++) {
       for (let c = 0; c < 2; c++) {
-        if (snakeGrid.has(`${r},${cx + c}`)) {
-          val |= DOT_MAP[`${r},${c}`];
+        if (snake.has(`${r},${cx + c}`)) {
+          snakeVal |= DOT_MAP[`${r},${c}`];
+          hasSnake = true;
         }
       }
     }
-    const ch = String.fromCharCode(0x2800 + val);
-    const charIdx = Math.floor(cx / 2);
-    if (charIdx === foodCharIdx) {
-      parts.push(`${color}${ch}${RESET}`);
+
+    if (foodInThisChar) {
+      // Food dot only (without snake body in this char)
+      let foodVal = DOT_MAP[`${foodR},${foodC - cx}`];
+
+      if (hasSnake) {
+        // Both food and snake in this char — render separately
+        // Snake char (no food dot) then food char (colored)
+        // But we can only show one char here... so overlay: food on top
+        // Render as: colored food dot merged into the char
+        const merged = snakeVal | foodVal;
+        const color = FOOD_COLORS[foodColor % FOOD_COLORS.length];
+        parts.push(`${color}${String.fromCharCode(0x2800 + merged)}${RESET}`);
+      } else {
+        // Only food in this char
+        const color = FOOD_COLORS[foodColor % FOOD_COLORS.length];
+        parts.push(`${color}${String.fromCharCode(0x2800 + foodVal)}${RESET}`);
+      }
+    } else if (hasSnake) {
+      // Only snake in this char
+      parts.push(String.fromCharCode(0x2800 + snakeVal));
     } else {
-      parts.push(ch);
+      // Empty
+      parts.push("\u2800");
     }
   }
   return parts.join("");
@@ -106,8 +113,7 @@ function bfsNext(head: string, food: string, occupied: Set<string>): string | nu
 function applySnakeIndicator(ctx: ExtensionContext) {
   if (!ctx.hasUI) return;
 
-  // Snake state
-  let snake = ["1,6", "1,5", "1,4", "1,3"]; // head first
+  let snake = ["1,6", "1,5", "1,4", "1,3"];
   let food = randomFood(snake);
   let foodColor = Math.floor(Math.random() * FOOD_COLORS.length);
 
@@ -138,13 +144,13 @@ function applySnakeIndicator(ctx: ExtensionContext) {
       snake.pop();
     }
 
-    const grid = new Set([...snake, food]);
-    const frame = toBrailleColored(grid, food, foodColor);
+    // Snake body only (no food)
+    const snakeGrid = new Set(snake);
+    const frame = renderFrame(snakeGrid, food, foodColor);
     ctx.ui.setWorkingIndicator({ frames: [frame], intervalMs: 120 });
   };
 
   const id = setInterval(tick, 120);
-
   ctx.signal?.addEventListener("abort", () => clearInterval(id));
 }
 
