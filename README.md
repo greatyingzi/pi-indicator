@@ -37,6 +37,12 @@ pi remove npm:pi-runcat
 
 rm -r ~/.local/share/fonts/runcat.ttf
 fc-cache -f
+
+# MacOS
+rm ~/Library/Fonts/runcat.ttf
+# Then restart the app that was using the font.
+# If it still appears, refresh macOS font caches with:
+atsutil databases -removeUser
 ```
 
 
