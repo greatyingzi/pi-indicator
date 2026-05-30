@@ -4,25 +4,30 @@ import type {
   WorkingIndicatorOptions,
 } from "@earendil-works/pi-coding-agent";
 
-// Single braille char (2x4 dot grid) Tetris animation
-// ⢀⢠⢰⢸⣼⣾⣿ = pieces stack up row by row
-// ⠀⣿ flashing = row clear
+// Braille Tetris: 4 braille chars (8x4 dot grid), single text line height
+// Pieces drop, rows fill up, flash, clear, loop
 const TETRIS_INDICATOR: WorkingIndicatorOptions = {
   frames: [
-    "\u2880", // ⢀  piece drops
-    "\u28A0", // ⢠  stacks
-    "\u28B0", // ⢰  stacks
-    "\u28B8", // ⢸  right column full
-    "\u28FC", // ⣼  left fills
-    "\u28FE", // ⣾  left fills
-    "\u28FF", // ⣿  FULL!
-    "\u2800", // ⠀  flash
-    "\u28FF", // ⣿
-    "\u2800", // ⠀  flash
-    "\u28FF", // ⣿
-    "\u2800", // ⠀  cleared
+    "⠀⣀⣀⠀", // I-piece drops
+    "⠀⠤⠤⠀", // falling
+    "⠀⠒⠒⠀", // falling
+    "⠀⠉⠉⠀", // landed center
+    "⠉⠉⠉⠀", // fill left gap
+    "⠉⠉⠉⠉", // row 0 full!
+    "⠒⠒⠀⠀", // row 1 half
+    "⠒⠒⠒⠒", // row 1 full!
+    "⠀⠀⠀⠀", // flash off (clear rows 0-1)
+    "⠛⠛⠛⠛", // rows keep stacking
+    "⠤⠤⠤⠤", // row 2-3 fill
+    "⣤⣤⣤⣤", // almost full
+    "⣿⣿⣿⣿", // ALL FULL!
+    "⠀⠀⠀⠀", // grand clear
+    "⣿⣿⣿⣿",
+    "⠀⠀⠀⠀",
+    "⣿⣿⣿⣿",
+    "⠀⠀⠀⠀", // loop
   ],
-  intervalMs: 120,
+  intervalMs: 110,
 };
 
 function applyTetrisIndicator(ctx: ExtensionContext) {
