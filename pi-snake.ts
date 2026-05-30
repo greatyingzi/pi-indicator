@@ -250,121 +250,132 @@ class BreakoutAnimation {
 }
 
 // ─── 3. Pac-Man Animation (side-scrolling) ─────────────────────────
-// Pac-Man moves right, eating dots. Dots scroll in from the right.
-// Ghosts chase from behind. Loop when reaching right edge.
+// Pac-Man is a bright yellow dot eating its way right through a field of dots.
+// 2 colored ghosts chase from behind. Dots scroll in from the right.
 
 class PacManAnimation {
-  // Pac-Man position
-  private px: number = 1;
-  private py: number = 2;
-  private mouthOpen: boolean = true;
-  private direction: number = 1; // 1=right, -1=left
+  // Pac-Man world position (viewport slides right)
+  private worldCol: number = 3;
+  private pacRow: number = 2;
+  private mouthPhase: number = 0;
 
-  // Dots array: each dot has { col, row } in world coords
-  // We render a sliding window of 8 cols
-  private worldOffset: number = 0;
+  // Dots in world coords
   private dots: Set<string> = new Set();
-  private ghosts: { r: number; c: number; vr: number; vc: number; color: string }[];
+
+  // Ghosts: world positions
+  private ghosts: { r: number; wc: number; color: string }[];
 
   constructor() {
-    this.generateDots();
+    // Generate initial dots
+    for (let wc = 0; wc < W + 10; wc++) {
+      for (let r = 0; r < H; r++) {
+        if ((wc + r) % 2 === 0) this.dots.add(`${r},${wc}`);
+      }
+    }
     this.ghosts = [
-      { r: 0, c: -3, vr: 0.12, vc: 0.15, color: "\x1b[38;5;196m" }, // red
-      { r: 3, c: -5, vr: -0.1, vc: 0.12, color: "\x1b[38;5;214m" }, // orange
+      { r: 1, wc: this.worldCol - 4, color: "\x1b[38;5;196m" },  // red
+      { r: 3, wc: this.worldCol - 6, color: "\x1b[38;5;214m" },  // orange
     ];
   }
 
-  private generateDots() {
-    this.dots.clear();
-    // Generate dots in a band around the player
-    for (let wc = this.worldOffset; wc < this.worldOffset + W + 4; wc++) {
-      for (let wr = 0; wr < H; wr++) {
-        // Scatter dots with some pattern (not every cell)
-        if ((wc + wr) % 2 === 0) {
-          this.dots.add(`${wr},${wc}`);
-        }
-      }
-    }
-  }
-
   tick(): string {
-    // Move pac-man
-    this.mouthOpen = !this.mouthOpen;
+    this.mouthPhase++;
 
-    // Try to keep moving in current direction, occasionally change row
-    if (Math.random() < 0.15) {
-      // Change row
-      const newR = this.py + (Math.random() < 0.5 ? 1 : -1);
-      if (newR >= 0 && newR < H) this.py = newR;
+    // Pac-Man wobbles between rows occasionally
+    if (this.mouthPhase % 8 === 0) {
+      const newR = this.pacRow + (Math.random() < 0.5 ? 1 : -1);
+      if (newR >= 0 && newR < H) this.pacRow = newR;
     }
 
-    this.px += this.direction;
-    this.worldOffset += this.direction;
+    // Move pac-man right
+    this.worldCol++;
 
-    // Wrap pac-man vertically (stay in bounds)
-    if (this.py < 0) this.py = 0;
-    if (this.py >= H) this.py = H - 1;
-
-    // Eat dots in pac-man's path
-    const worldPacC = this.px;
-    const worldPacR = this.py;
-    this.dots.delete(`${worldPacR},${worldPacC}`);
-    this.dots.delete(`${worldPacR},${worldPacC - 1}`);
-    this.dots.delete(`${worldPacR},${worldPacC + 1}`);
-
-    // Add new dots ahead
-    const ahead = this.worldOffset + W + 2;
-    for (let wr = 0; wr < H; wr++) {
-      if ((ahead + wr) % 2 === 0) {
-        this.dots.add(`${wr},${ahead}`);
-      }
+    // Eat dots
+    for (let dc = -1; dc <= 1; dc++) {
+      this.dots.delete(`${this.pacRow},${this.worldCol + dc}`);
     }
 
-    // Move ghosts
+    // Spawn new dots ahead
+    const ahead = this.worldCol + W + 2;
+    for (let r = 0; r < H; r++) {
+      if ((ahead + r) % 2 === 0) this.dots.add(`${r},${ahead}`);
+    }
+
+    // Move ghosts toward pac-man
     for (const g of this.ghosts) {
-      g.c += this.direction; // scroll with world
-      // Drift toward pac-man
-      if (g.r < worldPacR) g.r += 0.15;
-      else if (g.r > worldPacR) g.r -= 0.15;
-      // Clamp
+      g.wc += 0.85; // slightly slower than pac-man so they chase
+      if (g.r < this.pacRow) g.r += 0.3;
+      else if (g.r > this.pacRow) g.r -= 0.3;
       g.r = Math.max(0, Math.min(H - 1, g.r));
     }
 
-    // Render
     return this.buildFrame();
   }
 
   private buildFrame(): string {
     const grid = new Set<string>();
-    const coloredDots = new Set<string>();
+    const pacColored = new Set<string>();
+    const ghostColored = new Set<string>();
 
-    // Render dots (relative to viewport)
+    // Viewport: worldCol is pac-man's position, render cols [worldCol-2 .. worldCol+5]
+    const viewLeft = this.worldCol - 2;
+
+    // Dots
     for (const key of this.dots) {
       const [r, wc] = key.split(",").map(Number);
-      const vc = wc - this.worldOffset;
-      if (vc >= 0 && vc < W) {
-        grid.add(`${r},${vc}`);
-      }
+      const vc = wc - viewLeft;
+      if (vc >= 0 && vc < W) grid.add(`${r},${vc}`);
     }
 
-    // Render pac-man (relative)
-    const pacVC = this.px - this.worldOffset;
-    const pacKey = `${this.py},${Math.max(0, Math.min(W - 1, pacVC))}`;
+    // Pac-Man: always at viewport col 2
+    const pacKey = `${this.pacRow},2`;
     grid.add(pacKey);
+    pacColored.add(pacKey);
 
-    // Render ghosts (relative)
+    // Ghosts
     for (const g of this.ghosts) {
-      const gvc = Math.round(g.c - this.worldOffset);
+      const vc = Math.round(g.wc - viewLeft);
       const gr = Math.round(g.r);
-      if (gvc >= 0 && gvc < W && gr >= 0 && gr < H) {
-        const gKey = `${gr},${gvc}`;
+      if (vc >= 0 && vc < W && gr >= 0 && gr < H) {
+        const gKey = `${gr},${vc}`;
         grid.add(gKey);
-        coloredDots.add(gKey);
+        ghostColored.add(gKey);
       }
     }
 
-    // Use first ghost color for all ghost dots
-    return toBrailleColored(grid, coloredDots, this.ghosts[0].color);
+    // Build string: pac-man yellow, ghosts red (first ghost color)
+    // Need char-by-char rendering
+    const PAC_COLOR = "\x1b[38;5;226m"; // yellow
+    const GHOST_COLOR = "\x1b[38;5;196m"; // red
+
+    const parts: string[] = [];
+    for (let cx = 0; cx < W; cx += 2) {
+      let val = 0;
+      let hasPac = false;
+      let hasGhost = false;
+
+      for (let r = 0; r < H; r++) {
+        for (let c = 0; c < 2; c++) {
+          const gk = `${r},${cx + c}`;
+          const lk = `${r},${c}`;
+          if (grid.has(gk)) val |= DOT_MAP[lk];
+          if (pacColored.has(gk)) hasPac = true;
+          if (ghostColored.has(gk)) hasGhost = true;
+        }
+      }
+
+      const ch = String.fromCharCode(BRAILLE_OFFSET + val);
+
+      if (hasPac && !hasGhost) {
+        parts.push(`${PAC_COLOR}${ch}${RESET}`);
+      } else if (hasGhost && !hasPac) {
+        parts.push(`${GHOST_COLOR}${ch}${RESET}`);
+      } else {
+        parts.push(ch);
+      }
+    }
+
+    return parts.join("");
   }
 }
 
