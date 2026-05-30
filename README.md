@@ -18,7 +18,7 @@ curl -L -o ~/Library/Fonts/runcat.ttf "https://github.com/FredySandoval/pi-runca
 # If it still does not appear, you can refresh macOS font caches with:
 atsutil databases -removeUser
 
-# Test in your terminal if font is rendered correctly
+# Check the font in your terminal 
 echo "         "
 ```
 
