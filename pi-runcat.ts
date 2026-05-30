@@ -4,30 +4,33 @@ import type {
   WorkingIndicatorOptions,
 } from "@earendil-works/pi-coding-agent";
 
-// Braille Tetris: 4 braille chars (8x4 dot grid), single text line height
-// Pieces drop, rows fill up, flash, clear, loop
+// Braille Tetris: 4 braille chars = 8x4 dot grid, single text-line height
+// Recognizable Tetris pieces (T, L, O, Z) drop, stack, fill rows, clear!
 const TETRIS_INDICATOR: WorkingIndicatorOptions = {
   frames: [
-    "⠀⣀⣀⠀", // I-piece drops
-    "⠀⠤⠤⠀", // falling
-    "⠀⠒⠒⠀", // falling
-    "⠀⠉⠉⠀", // landed center
-    "⠉⠉⠉⠀", // fill left gap
-    "⠉⠉⠉⠉", // row 0 full!
-    "⠒⠒⠀⠀", // row 1 half
-    "⠒⠒⠒⠒", // row 1 full!
-    "⠀⠀⠀⠀", // flash off (clear rows 0-1)
-    "⠛⠛⠛⠛", // rows keep stacking
-    "⠤⠤⠤⠤", // row 2-3 fill
-    "⣤⣤⣤⣤", // almost full
-    "⣿⣿⣿⣿", // ALL FULL!
-    "⠀⠀⠀⠀", // grand clear
-    "⣿⣿⣿⣿",
-    "⠀⠀⠀⠀",
-    "⣿⣿⣿⣿",
-    "⠀⠀⠀⠀", // loop
+    "⢀⣄⠀⠀", // T-piece falls
+    "⠠⠦⠀⠀", // T falling
+    "⠐⠓⠀⠀", // T lands
+    "⠐⠓⡀⠀", // L-piece falls
+    "⠐⠓⠄⠀", // L falling
+    "⠐⠓⠂⠀", // L lands
+    "⠐⠓⠋⠀", // O-piece falls
+    "⣐⠓⠋⠀", // O lands
+    "⠛⠓⠋⠀", // Z-piece falls
+    "⠛⠓⢋⡀", // Z falling
+    "⠛⠓⠫⠄", // Z lands
+    "⠛⠓⠛⠋", // dot fills gap
+    "⠛⢓⠛⠋", // dot lands
+    "⠛⠛⠛⠋", // dot2 fills gap
+    "⠛⠛⠛⢋", // dot2 lands
+    "⠛⠛⠛⠛", // ROWS FULL!
+    "⠀⠀⠀⠀", // flash
+    "⠛⠛⠛⠛", // flash
+    "⠀⠀⠀⠀", // flash
+    "⠛⠛⠛⠛", // flash
+    "⠀⠀⠀⠀", // cleared - loop
   ],
-  intervalMs: 110,
+  intervalMs: 120,
 };
 
 function applyTetrisIndicator(ctx: ExtensionContext) {
