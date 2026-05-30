@@ -4,13 +4,36 @@ import type {
   WorkingIndicatorOptions,
 } from "@earendil-works/pi-coding-agent";
 
-const RUNCAT_INDICATOR: WorkingIndicatorOptions = {
-  frames: ["🐱 ", "😺 ", "😸 ", "😻 ", "😼 "],
-  intervalMs: 167,
+const TETRIS_INDICATOR: WorkingIndicatorOptions = {
+  frames: [
+    // Pieces land and fill the row
+    "⬜⬜⬜⬜⬜⬜⬜🟦",
+    "⬜⬜⬜⬜⬜⬜🟦🟦",
+    "⬜⬜⬜⬜⬜🟦🟦🟦",
+    "⬜⬜⬜⬜🟦🟦🟦🟦",
+    "⬜⬜⬜⬜🟦🟦🟨🟨",
+    "⬜⬜⬜🟩🟦🟦🟨🟨",
+    "⬜⬜🟩🟩🟦🟦🟨🟨",
+    "⬜🟧🟩🟩🟦🟦🟨🟨",
+    "🟧🟧🟩🟩🟦🟦🟨🟨",
+    // Row complete! Flash
+    "🟧🟧🟩🟩🟦🟦🟨🟨",
+    "⬜⬜⬜⬜⬜⬜⬜⬜",
+    "🟧🟧🟩🟩🟦🟦🟨🟨",
+    "⬜⬜⬜⬜⬜⬜⬜⬜",
+    // Clear!
+    "💥💥💥💥💥💥💥💥",
+    "🔥🔥🔥🔥🔥🔥🔥🔥",
+    "✨✨✨✨✨✨✨✨",
+    // Empty pause before next loop
+    "⬜⬜⬜⬜⬜⬜⬜⬜",
+  ],
+  intervalMs: 150,
 };
+
 function applyRunCatIndicator(ctx: ExtensionContext) {
   if (!ctx.hasUI) return;
-  ctx.ui.setWorkingIndicator(RUNCAT_INDICATOR);
+  ctx.ui.setWorkingIndicator(TETRIS_INDICATOR);
 }
 
 export default function(pi: ExtensionAPI) {
