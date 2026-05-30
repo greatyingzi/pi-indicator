@@ -20,7 +20,7 @@
     "game"
   ],
   "files": [
-    "pi-runcat.ts",
+    "pi-snake.ts",
     "README.md"
   ],
   "peerDependencies": {
@@ -28,7 +28,7 @@
   },
   "pi": {
     "extensions": [
-      "./pi-runcat.ts"
+      "./pi-snake.ts"
     ]
   }
 }
