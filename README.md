@@ -1,19 +1,14 @@
 # pi-snake
 
-Animated working indicators for your `Pi` loading indicator — 6 built-in braille-dot animations on an 8×4 grid.
-
-No font installation needed, works on any terminal that supports Unicode braille characters.
+Animated working indicators for `Pi` — tiny braille-dot games on an 8×4 grid.
 
 ## Animations
 
-| # | Name | Description |
-|---|------|-------------|
-| 🐍 | **Snake** | BFS pathfinding snake hunts colored food |
-| 🏓 | **Pong** | AI-controlled paddles bounce a ball |
-| 🧱 | **Tetris** | Pre-rendered tetris pieces fall and clear rows |
-| ⚫ | **Bouncing Ball** | A ball bounces inside the grid with a motion trail |
-| 🌊 | **Sine Wave** | Multiple overlapping sine waves flow smoothly |
-| ✨ | **Fireflies** | Softly drifting dots fade in and out |
+| Name | Description |
+|------|-------------|
+| 🐍 Snake | BFS pathfinding snake hunts colored food |
+| 🧱 Breakout | Horizontal breakout — bricks on left, paddle on right |
+| 👾 Pac-Man | Side-scrolling pac-man eating dots, ghosts chase behind |
 
 ## Install
 
@@ -23,18 +18,19 @@ pi install https://github.com/greatyingzi/pi-snake
 
 ## Switch Animation
 
-Use the `/snake` command to open a selection menu and switch animations at any time:
-
+```bash
+/snake              # Pick from menu
+/snake snake        # Switch to Snake
+/snake breakout     # Switch to Breakout
+/snake pacman       # Switch to Pac-Man
 ```
-/snake
-```
-
-The default animation is Snake (backward compatible).
 
 ## Uninstall
 
 ```bash
 pi remove npm:pi-snake
 ```
+
+No font installation needed — works on any Unicode terminal.
 
 Inspired by [pi-runcat](https://github.com/FredySandoval/pi-runcat)
