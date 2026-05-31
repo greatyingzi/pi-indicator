@@ -282,7 +282,8 @@ class PacManAnimation {
   }
 
   tick(): string {
-    this.mouthOpen = !this.mouthOpen;
+    this.mouthPhase++;
+    if (this.mouthPhase % 3 === 0) this.mouthOpen = !this.mouthOpen;
     this.spawnTimer++;
 
     // Spawn a dot every 6 ticks — sparse
