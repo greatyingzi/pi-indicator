@@ -304,9 +304,8 @@ class CatAnimation:
     def __init__(self):
         self.timer = 0
         self.cycle_idx = 0
-        # open -> happy -> open -> blink -> repeat
-        self.cycle = [15, 8, 15, 3]
-        self.states = ["open", "happy", "open", "blink"]
+        self.cycle = [18, 3, 18, 3]  # open, blink, open, blink
+        self.states = ["open", "blink", "open", "blink"]
 
     def tick(self):
         self.timer += 1
@@ -319,22 +318,29 @@ class CatAnimation:
         CYAN = "\x1b[38;5;51m"
         PINK = "\x1b[38;5;213m"
 
+        # Base face
         body = set()
-        body.update([(0,2),(0,3),(0,8),(0,9)])  # ears
-        body.update([(1,1),(1,2),(1,3),(1,4),(1,8),(1,9),(1,10)])  # head
-        body.update([(2,1),(2,2),(2,3),(2,4),(2,8),(2,9),(2,10)])  # cheeks
-        body.update([(3,3),(3,4),(3,5),(3,6),(3,7)])  # chin
+        body.update([(0,2),(0,3),(0,12),(0,13)])  # ears
+        for c in range(1,15): body.add((1,c))       # row 1 head
+        for c in range(1,15): body.add((2,c))       # row 2 face
+        for c in range(3,13): body.add((3,c))       # chin
 
-        nose = {(2,6)}
+        left_eye = {(1,5),(1,6),(2,5),(2,6)}
+        right_eye = {(1,9),(1,10),(2,9),(2,10)}
+        nose = {(2,7),(2,8)}
+
+        body -= left_eye
+        body -= right_eye
+        body -= nose
+        body.discard((3,7))  # mouth gap
+        body.discard((3,8))
+
         eyes = set()
-
         if state == "open":
-            eyes = {(1,5), (1,7)}
-        elif state == "blink":
-            body.update([(1,5),(1,7)])
-        elif state == "happy":
-            eyes = {(1,5), (1,7)}
-            body.update([(2,5),(2,7)])
+            eyes = left_eye | right_eye
+        else:  # blink
+            body.update(left_eye)
+            body.update(right_eye)
 
         parts = []
         for cx in range(0, W, 2):
