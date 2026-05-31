@@ -360,13 +360,8 @@ def _run_loop(anims, label_only=None, duration=None):
                 if label_only:
                     frames.append(frame)
                 else:
-                    # Strip ANSI for length calc, emoji counts as 2
-                    import re as _re
-                    plain = _re.sub(r'\x1b\[[^m]*m', '', label)
-                    # wcwidth-like: emoji = 2, ascii = 1
-                    visual_len = sum(2 if ord(ch) > 0x1F00 else 1 for ch in plain)
-                    pad = 16 - visual_len
-                    frames.append(f"\x1b[1m{label}{' ' * max(0, pad)}\x1b[0m{frame}")
+                    # Label after frame, no alignment needed
+                    frames.append(f"{frame}  \x1b[1m{label}\x1b[0m")
 
             # Move cursor up N lines, clear and rewrite each
             sys.stdout.write(f"\x1b[{n}A")
