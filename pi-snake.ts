@@ -250,65 +250,82 @@ class BreakoutAnimation {
 }
 
 // ─── 3. Pac-Man Animation ──────────────────────────────────────────
-// Pac-Man sits at col 3, opens/closes mouth. Dots float in from the right.
-// When a dot reaches pac-man, it gets eaten.
+// Pac-Man drawn as dot-art shape (5×4), mouth opens/closes.
+// Dots float in from the right, one at a time, spaced out.
 
 class PacManAnimation {
   private mouthOpen: boolean = true;
-  private dots: number[] = []; // each dot is just a column position
+  private dots: number[] = []; // column positions of dots
   private spawnTimer: number = 0;
+
+  // Pac-Man shape at col 0-4, using rows 0-3
+  // Open mouth:  ..XX.  / .X..X / .X..X / ..XX.
+  // Closed:      ..XX.  / .XXXX / .XXXX / ..XX.
+  private getPacDots(): Set<string> {
+    const s = new Set<string>();
+    // Head (always shown)
+    s.add("0,2"); s.add("0,3");
+    s.add("3,2"); s.add("3,3");
+    s.add("1,1"); s.add("2,1");
+    // Back of head
+    s.add("1,4"); s.add("2,4");
+
+    if (this.mouthOpen) {
+      // Open: gap in the front (no dots at col 5)
+    } else {
+      // Closed: fill the mouth
+      s.add("1,2"); s.add("1,3");
+      s.add("2,2"); s.add("2,3");
+    }
+    return s;
+  }
 
   tick(): string {
     this.mouthOpen = !this.mouthOpen;
     this.spawnTimer++;
 
-    // Spawn a dot from the right every 3-4 ticks
-    if (this.spawnTimer >= 3) {
+    // Spawn a dot every 6 ticks — sparse
+    if (this.spawnTimer >= 6) {
       this.spawnTimer = 0;
       this.dots.push(W - 1);
     }
 
-    // Move all dots left
+    // Move dots left
     for (let i = 0; i < this.dots.length; i++) {
       this.dots[i]--;
     }
 
-    // Remove dots that reached pac-man (col 3) or went past
-    this.dots = this.dots.filter(d => d > 3);
+    // Remove dots eaten (col 5 = pac-man front) or past
+    this.dots = this.dots.filter(d => d > 5);
 
     // Render
     const grid = new Set<string>();
-    const pacColored = new Set<string>();
+    const pacDots = this.getPacDots();
 
-    // Pac-Man at row 2, col 3 (always)
-    // When mouth open: show pac-man + nothing to its right
-    // When mouth closed: just pac-man
-    const pacKey = "2,3";
-    grid.add(pacKey);
-    pacColored.add(pacKey);
+    // Pac-Man
+    for (const key of pacDots) grid.add(key);
 
-    // Dots at row 2
+    // Dots at row 2 (middle)
     for (const d of this.dots) {
       grid.add(`2,${d}`);
     }
 
-    // Build with pac-man yellow
-    const PAC_COLOR = "\x1b[38;5;226m";
-    const DOT_COLOR = "\x1b[38;5;51m"; // cyan dots
+    // Color rendering
+    const PAC_COLOR = "\x1b[38;5;226m"; // yellow
+    const DOT_COLOR = "\x1b[38;5;51m";  // cyan
 
     const parts: string[] = [];
     for (let cx = 0; cx < W; cx += 2) {
-      let val = 0;
-      let hasPac = false;
-      let hasDot = false;
+      let val = 0, pacVal = 0, dotVal = 0;
+      let hasPac = false, hasDot = false;
 
       for (let r = 0; r < H; r++) {
         for (let c = 0; c < 2; c++) {
           const gk = `${r},${cx + c}`;
-          if (grid.has(gk)) val |= DOT_MAP[`${r},${c}`];
-          if (pacColored.has(gk)) hasPac = true;
-          // Check if this cell is a dot (not pac)
-          if (grid.has(gk) && !pacColored.has(gk)) hasDot = true;
+          const lk = `${r},${c}`;
+          if (grid.has(gk)) val |= DOT_MAP[lk];
+          if (pacDots.has(gk)) { pacVal |= DOT_MAP[lk]; hasPac = true; }
+          if (grid.has(gk) && !pacDots.has(gk)) { dotVal |= DOT_MAP[lk]; hasDot = true; }
         }
       }
 
