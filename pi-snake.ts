@@ -258,24 +258,25 @@ class PacManAnimation {
   private dots: number[] = []; // column positions of dots
   private spawnTimer: number = 0;
 
-  // Pac-Man shape at col 0-4, using rows 0-3
-  // Open mouth:  ..XX.  / .X..X / .X..X / ..XX.
-  // Closed:      ..XX.  / .XXXX / .XXXX / ..XX.
+  // Pac-Man shape at col 0-5, facing right
+  // Side view: round body, mouth opens/closes on the RIGHT side
+  // Open:  .████. / ██....█ / ██....█ / .████.
+  // Closed: .████. / ██████ / ██████ / .████.
   private getPacDots(): Set<string> {
     const s = new Set<string>();
-    // Head (always shown)
-    s.add("0,2"); s.add("0,3");
-    s.add("3,2"); s.add("3,3");
-    s.add("1,1"); s.add("2,1");
-    // Back of head
-    s.add("1,4"); s.add("2,4");
+    // Body (always shown)
+    s.add("0,1"); s.add("0,2"); s.add("0,3"); s.add("0,4");
+    s.add("3,1"); s.add("3,2"); s.add("3,3"); s.add("3,4");
+    s.add("1,0"); s.add("2,0"); // left edge
+    s.add("1,5"); s.add("2,5"); // right edge (back of mouth)
 
     if (this.mouthOpen) {
-      // Open: gap in the front (no dots at col 5)
+      // Open: gap in the front-right (cols 2-3 missing on rows 1-2)
+      // mouth is the opening on the right side
     } else {
-      // Closed: fill the mouth
-      s.add("1,2"); s.add("1,3");
-      s.add("2,2"); s.add("2,3");
+      // Closed: fill the mouth area
+      s.add("1,1"); s.add("1,2"); s.add("1,3"); s.add("1,4");
+      s.add("2,1"); s.add("2,2"); s.add("2,3"); s.add("2,4");
     }
     return s;
   }
@@ -295,8 +296,8 @@ class PacManAnimation {
       this.dots[i]--;
     }
 
-    // Remove dots eaten (col 5 = pac-man front) or past
-    this.dots = this.dots.filter(d => d > 5);
+    // Remove dots eaten (col 6 = pac-man front) or past
+    this.dots = this.dots.filter(d => d > 6);
 
     // Render
     const grid = new Set<string>();
