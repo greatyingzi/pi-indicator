@@ -298,14 +298,16 @@ class EqualizerAnimation:
         return to_braille(grid)
 
 
-# ─── 5. Invaders Animation ──────────────────────────────────────────
+# ─── 5. Invaders Animation (horizontal) ─────────────────────────────
+# Ship on LEFT (col 0-1), aliens invade from RIGHT
+# Ship moves up/down, bullets shoot RIGHT, aliens approach LEFT
 
 class InvadersAnimation:
     def __init__(self):
-        self.player_col = 7
-        self.player_dir = 1
+        self.ship_row = 2
+        self.ship_dir = 1
         self.aliens = set()
-        self.alien_dir = 1
+        self.alien_dir = -1
         self.alien_timer = 0
         self.bullets = []
         self.shoot_timer = 0
@@ -313,32 +315,31 @@ class InvadersAnimation:
 
     def _spawn_aliens(self):
         self.aliens.clear()
-        for c in range(1, 15, 2):
-            self.aliens.add(f"0,{c}")
-        for c in range(2, 14, 2):
-            self.aliens.add(f"1,{c}")
+        for r in range(4):
+            self.aliens.add(f"{r},{W-1}")
+            self.aliens.add(f"{r},{W-2}")
+            self.aliens.add(f"{r},{W-4}")
+            self.aliens.add(f"{r},{W-5}")
 
     def tick(self):
         self.alien_timer += 1
         self.shoot_timer += 1
 
-        # Player patrol
-        self.player_col += self.player_dir
-        if self.player_col >= W - 3:
-            self.player_dir = -1
-        elif self.player_col <= 0:
-            self.player_dir = 1
+        # Ship moves up/down
+        self.ship_row += self.ship_dir
+        if self.ship_row >= H - 1: self.ship_dir = -1
+        elif self.ship_row <= 0: self.ship_dir = 1
 
-        # Auto-shoot
-        if self.shoot_timer >= 4:
+        # Auto-shoot right
+        if self.shoot_timer >= 3:
             self.shoot_timer = 0
-            self.bullets.append([H - 2, self.player_col + 1])
+            self.bullets.append([self.ship_row, 2])
 
-        # Move bullets
+        # Move bullets right
         new_bullets = []
         for b in self.bullets:
-            b[0] -= 1
-            if b[0] >= 0:
+            b[1] += 1
+            if b[1] < W:
                 key = f"{b[0]},{b[1]}"
                 if key in self.aliens:
                     self.aliens.discard(key)
@@ -347,40 +348,37 @@ class InvadersAnimation:
         self.bullets = new_bullets
 
         # Move aliens
-        if self.alien_timer >= 8:
+        if self.alien_timer >= 6:
             self.alien_timer = 0
             if self.aliens:
                 min_c = min(int(k.split(",")[1]) for k in self.aliens)
                 max_c = max(int(k.split(",")[1]) for k in self.aliens)
-                shift_down = False
-                if self.alien_dir > 0 and max_c >= W - 2:
-                    self.alien_dir = -1; shift_down = True
-                elif self.alien_dir < 0 and min_c <= 1:
-                    self.alien_dir = 1; shift_down = True
                 new_aliens = set()
+                shift_v = False
+
+                if self.alien_dir < 0 and min_c <= 4:
+                    self.alien_dir = 1; shift_v = True
+                elif self.alien_dir > 0 and max_c >= W - 1:
+                    self.alien_dir = -1; shift_v = True
+
                 for key in self.aliens:
                     r, c = map(int, key.split(","))
-                    if shift_down: r += 1
+                    if shift_v: r += 1
                     else: c += self.alien_dir
                     if 0 <= r < H and 0 <= c < W:
                         new_aliens.add(f"{r},{c}")
                 self.aliens = new_aliens
 
-            if not self.aliens or any(int(k.split(",")[0]) >= H - 1 for k in self.aliens):
+            if not self.aliens or any(int(k.split(",")[0]) >= H for k in self.aliens):
                 self._spawn_aliens()
 
-        # Render with colors
+        # Render
         SHIP = "\x1b[38;5;46m"
         ALIEN = "\x1b[38;5;196m"
         BULLET = "\x1b[38;5;226m"
-
-        ship_dots = set()
-        for dc in range(3):
-            pc = self.player_col + dc
-            if 0 <= pc < W:
-                ship_dots.add(f"3,{pc}")
+        ship_dots = {f"{self.ship_row},0", f"{self.ship_row},1"}
         alien_dots = set(self.aliens)
-        bullet_dots = set(f"{b[0]},{b[1]}" for b in self.bullets if 0 <= b[0] < H)
+        bullet_dots = set(f"{b[0]},{b[1]}" for b in self.bullets if 0 <= b[1] < W)
 
         parts = []
         for cx in range(0, W, 2):
@@ -401,7 +399,7 @@ class InvadersAnimation:
                 parts.append(f"{ALIEN}{ch}{RESET}")
             elif has_bullet and not has_ship and not has_alien:
                 parts.append(f"{BULLET}{ch}{RESET}")
-            elif has_ship and not has_alien and not has_bullet:
+            elif has_ship:
                 parts.append(f"{SHIP}{ch}{RESET}")
             else:
                 parts.append(ch)
