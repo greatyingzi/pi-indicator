@@ -255,6 +255,7 @@ class BreakoutAnimation {
 
 class PacManAnimation {
   private mouthOpen: boolean = true;
+  private mouthPhase: number = 0;
   private dots: number[] = []; // column positions of dots
   private spawnTimer: number = 0;
 
