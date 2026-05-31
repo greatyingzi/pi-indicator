@@ -343,9 +343,11 @@ def _run_loop(anims, label_only=None, duration=None):
     start = time.time()
     n = len(instances)
 
-    # Print initial blank lines for frames
-    for _ in range(n):
-        sys.stdout.write("\n")
+    # Print initial blank lines for frames (label line + separator per animation)
+    for i in range(n):
+        sys.stdout.write("\n")  # frame line
+        if i < n - 1:
+            sys.stdout.write("\n")  # separator between animations
     sys.stdout.flush()
 
     try:
@@ -363,10 +365,13 @@ def _run_loop(anims, label_only=None, duration=None):
                     # Label after frame, no alignment needed
                     frames.append(f"{frame}  \x1b[1m{label}\x1b[0m")
 
-            # Move cursor up N lines, clear and rewrite each
-            sys.stdout.write(f"\x1b[{n}A")
-            for frame in frames:
+            # Move cursor up, clear and rewrite with separators
+            total_lines = n + (n - 1)  # n frame lines + n-1 separator lines
+            sys.stdout.write(f"\x1b[{total_lines}A")
+            for i, frame in enumerate(frames):
                 sys.stdout.write(f"{CLEAR_LINE}\r{frame}\n")
+                if i < n - 1:
+                    sys.stdout.write(f"{CLEAR_LINE}\r{'─' * 40}\n")
             sys.stdout.flush()
 
             # Use the slowest interval
