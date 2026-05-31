@@ -298,7 +298,69 @@ class EqualizerAnimation:
         return to_braille(grid)
 
 
-# ─── 5. Invaders Animation (horizontal) ─────────────────────────────
+# ─── 5. Cat Animation (cute cat face) ──────────────────────────────
+
+class CatAnimation:
+    def __init__(self):
+        self.timer = 0
+        self.cycle_idx = 0
+        # open -> happy -> open -> blink -> repeat
+        self.cycle = [15, 8, 15, 3]
+        self.states = ["open", "happy", "open", "blink"]
+
+    def tick(self):
+        self.timer += 1
+        if self.timer >= self.cycle[self.cycle_idx]:
+            self.timer = 0
+            self.cycle_idx = (self.cycle_idx + 1) % len(self.cycle)
+
+        state = self.states[self.cycle_idx]
+        YELLOW = "\x1b[38;5;226m"
+        CYAN = "\x1b[38;5;51m"
+        PINK = "\x1b[38;5;213m"
+
+        body = set()
+        body.update([(0,2),(0,3),(0,8),(0,9)])  # ears
+        body.update([(1,1),(1,2),(1,3),(1,4),(1,8),(1,9),(1,10)])  # head
+        body.update([(2,1),(2,2),(2,3),(2,4),(2,8),(2,9),(2,10)])  # cheeks
+        body.update([(3,3),(3,4),(3,5),(3,6),(3,7)])  # chin
+
+        nose = {(2,6)}
+        eyes = set()
+
+        if state == "open":
+            eyes = {(1,5), (1,7)}
+        elif state == "blink":
+            body.update([(1,5),(1,7)])
+        elif state == "happy":
+            eyes = {(1,5), (1,7)}
+            body.update([(2,5),(2,7)])
+
+        parts = []
+        for cx in range(0, W, 2):
+            val = 0
+            has_eye = has_nose = has_body = False
+            for r in range(H):
+                for c in range(2):
+                    gk = (r, cx + c)
+                    if gk in body or gk in eyes or gk in nose:
+                        val |= DOT_MAP[(r, c)]
+                    if gk in eyes: has_eye = True
+                    if gk in nose: has_nose = True
+                    if gk in body: has_body = True
+            ch = chr_braille(val)
+            if val == 0: parts.append(EMPTY_BRAILLE)
+            elif has_eye and not has_body and not has_nose:
+                parts.append(f"{CYAN}{ch}{RESET}")
+            elif has_nose and not has_body and not has_eye:
+                parts.append(f"{PINK}{ch}{RESET}")
+            elif has_body:
+                parts.append(f"{YELLOW}{ch}{RESET}")
+            else: parts.append(ch)
+        return "".join(parts)
+
+
+# ─── 6. Invaders Animation (horizontal) ─────────────────────────────
 # Ship on LEFT (col 0-1), aliens invade from RIGHT
 # Ship moves up/down, bullets shoot RIGHT, aliens approach LEFT
 
@@ -413,6 +475,7 @@ ANIM_DEFS = [
     ("breakout",   "Breakout 🧱",   BreakoutAnimation,   0.100),
     ("pacman",     "Pac-Man 👾",    PacManAnimation,     0.140),
     ("equalizer",  "Equalizer 📊",  EqualizerAnimation,  0.150),
+    ("cat",        "Cat 🐱",        CatAnimation,        0.160),
     ("invaders",   "Invaders 🛸",   InvadersAnimation,   0.120),
 ]
 
