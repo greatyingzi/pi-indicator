@@ -19,10 +19,11 @@ pi install https://github.com/greatyingzi/pi-indicator
 ## Switch Animation
 
 ```bash
-/snake              # Pick from menu
-/snake snake        # Switch to Snake
-/snake breakout     # Switch to Breakout
-/snake pacman       # Switch to Pac-Man
+/indicator           # Pick from menu
+/indicator snake     # Switch to Snake
+/indicator breakout  # Switch to Breakout
+/indicator pacman    # Switch to Pac-Man
+/anim snake          # /anim also works as shorthand
 ```
 
 Choice is persisted — your selection is remembered across sessions.

@@ -448,45 +448,46 @@ export default function (pi: ExtensionAPI) {
     uiCtx = null;
   });
 
-  pi.registerCommand("snake", {
-    description: "Switch animation: /snake <snake|breakout|pacman> or /snake to pick",
-    handler: async (ctx: any) => {
-      const ui: ExtensionUIContext | null = ctx.ui ?? uiCtx;
-      if (!ui) return;
+  const cmdHandler = async (ctx: any) => {
+    const ui: ExtensionUIContext | null = ctx.ui ?? uiCtx;
+    if (!ui) return;
 
-      const args: string | undefined = ctx.args;
-      if (args) {
-        const target = args.trim().toLowerCase();
-        const found = ANIM_LIST.find(a => a.id === target);
-        if (found) {
-          stopAnimation();
-          startAnimation(found.id, { ui, hasUI: true, signal: undefined } as any);
-          savePref(found.id);
-          ui.notify(`Switched to ${found.label}`);
-          return;
-        }
-      }
-
-      const currentLabel = ANIM_LIST.find(a => a.id === globalState?.current)?.label ?? "Snake 🐍";
-      const options = ANIM_LIST.map(a =>
-        a.id === globalState?.current ? `→ ${a.label} (current)` : `  ${a.label}`
-      );
-
-      const choice = await ui.select(
-        `Current: ${currentLabel} — Pick an animation:`,
-        options,
-      );
-      if (!choice) return;
-
-      const idx = options.indexOf(choice);
-      if (idx < 0) return;
-
-      const selected = ANIM_LIST[idx];
-      if (selected) {
+    const args: string | undefined = ctx.args;
+    if (args) {
+      const target = args.trim().toLowerCase();
+      const found = ANIM_LIST.find(a => a.id === target);
+      if (found) {
         stopAnimation();
-        startAnimation(selected.id, { ui, hasUI: true, signal: undefined } as any);
-        savePref(selected.id);
+        startAnimation(found.id, { ui, hasUI: true, signal: undefined } as any);
+        savePref(found.id);
+        ui.notify(`Switched to ${found.label}`);
+        return;
       }
-    },
-  });
+    }
+
+    const currentLabel = ANIM_LIST.find(a => a.id === globalState?.current)?.label ?? "Snake 🐍";
+    const options = ANIM_LIST.map(a =>
+      a.id === globalState?.current ? `→ ${a.label} (current)` : `  ${a.label}`
+    );
+
+    const choice = await ui.select(
+      `Current: ${currentLabel} — Pick an animation:`,
+      options,
+    );
+    if (!choice) return;
+
+    const idx = options.indexOf(choice);
+    if (idx < 0) return;
+
+    const selected = ANIM_LIST[idx];
+    if (selected) {
+      stopAnimation();
+      startAnimation(selected.id, { ui, hasUI: true, signal: undefined } as any);
+      savePref(selected.id);
+    }
+  };
+
+  const cmdDesc = "Switch animation: /indicator <snake|breakout|pacman> or /anim to pick";
+  pi.registerCommand("indicator", { description: cmdDesc, handler: cmdHandler });
+  pi.registerCommand("anim", { description: cmdDesc, handler: cmdHandler });
 }
