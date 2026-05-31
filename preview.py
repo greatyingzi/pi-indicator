@@ -561,23 +561,21 @@ class InvadersAnimation:
 class RacerAnimation:
     """Side-scrolling 2-lane racer on 16x8 canvas (two braille lines).
     Lane 0: rows 0-3 (upper braille line), Lane 1: rows 4-7 (lower).
-    Cars are 4-row × 9-dot-col NES-style top-down pixel art. No color.
+    Cars are 2-row × 4-col mini top-down pixel art. No color.
     """
 
-    # Car template pixels (row, col) facing RIGHT
+    # Mini car: 2 rows × 4 cols, facing RIGHT
+    #   .##.   row0: hood
+    #   ####   row1: body full width
     CAR_RIGHT = frozenset({
-        (0,0),(3,0),
-        (0,1),(1,1),(2,1),(3,1),
-        (0,2),(1,2),(2,2),(3,2),
-        (1,3),(2,3),(1,4),(2,4),
-        (1,5),(2,5),(1,6),(2,6),
-        (0,7),(1,7),(2,7),(3,7),
-        (1,8),(2,8),
+        (0,1),(0,2),
+        (1,0),(1,1),(1,2),(1,3),
     })
-    # Mirrored for left-facing enemies
-    CAR_LEFT = frozenset((r, 8 - c) for r, c in CAR_RIGHT)
+    # Mirrored for left-facing enemies (col → 3-col)
+    CAR_LEFT = frozenset((r, 3 - c) for r, c in CAR_RIGHT)
+    CAR_W = 4  # car width in dot-columns
 
-    PLAYER_COL = 1
+    PLAYER_COL = 2
 
     def __init__(self):
         self.player_lane = 0
@@ -586,12 +584,15 @@ class RacerAnimation:
         self.spawn_timer = 0
         self.road_phase = 0
 
+    def _off(self, lane):
+        return 0 if lane == 0 else 4
+
     def tick(self):
         self.road_phase += 1
 
         # Spawn enemies
         self.spawn_timer += 1
-        interval = max(5, 12 - min(self.overtakes // 3, 7))
+        interval = max(3, 8 - min(self.overtakes // 4, 5))
         if self.spawn_timer >= interval:
             self.spawn_timer = 0
             lane = random.randint(0, 1)
@@ -602,51 +603,58 @@ class RacerAnimation:
         survived = []
         for e in self.enemies:
             e[1] -= 1
-            if e[1] < -10: self.overtakes += 1
+            if e[1] < -(self.CAR_W + 2): self.overtakes += 1
             else: survived.append(e)
         self.enemies = survived
 
         # AI dodge
         pc = self.PLAYER_COL
+        cw = self.CAR_W
         threats = [e for e in self.enemies
-                   if e[0] == self.player_lane and e[1] <= pc + 9 and e[1] + 9 >= pc]
+                   if e[0] == self.player_lane and e[1] <= pc + cw and e[1] + cw >= pc]
         if threats:
             other = 1 - self.player_lane
-            if not any(oe[0] == other and oe[1] <= pc + 11 and oe[1] + 9 >= pc - 2
+            if not any(oe[0] == other and oe[1] <= pc + cw + 2 and oe[1] + cw >= pc - 1
                        for oe in self.enemies):
                 self.player_lane = other
 
         # Collision
-        p_off = 0 if self.player_lane == 0 else 4
+        p_off = self._off(self.player_lane)
         p_set = frozenset((r + p_off, pc + c) for r, c in self.CAR_RIGHT)
         for e in self.enemies:
-            e_off = 0 if e[0] == 0 else 4
+            e_off = self._off(e[0])
             e_set = frozenset((r + e_off, e[1] + c) for r, c in self.CAR_LEFT)
             if p_set & e_set:
                 self.enemies.clear()
-                self.overtakes = max(0, self.overtakes - 5)
+                self.overtakes = max(0, self.overtakes - 3)
                 break
 
-        # ── Render (no color, just dots) ──
+        # ── Render ──
         grid = set()
 
-        # Road shoulder dashes (row 0 and row 7)
+        # Road dashes (row 0 and row 7)
         for c in range(W):
-            if (c + self.road_phase) % 4 < 2:
+            if (c + self.road_phase) % 3 < 2:
                 grid.add((0, c))
                 grid.add((7, c))
 
-        # Player car
+        # Center lane divider dashes (between lanes: row 3-4 boundary)
+        for c in range(W):
+            if (c + self.road_phase + 1) % 4 < 2:
+                grid.add((3, c))
+                grid.add((4, c))
+
+        # Player car (top of lane = offset + 1, leaving 1 row margin)
         for r, c in self.CAR_RIGHT:
-            grid.add((r + p_off, pc + c))
+            grid.add((r + p_off + 1, pc + c))
 
         # Enemy cars
         for e in self.enemies:
-            e_off = 0 if e[0] == 0 else 4
+            e_off = self._off(e[0])
             for r, c in self.CAR_LEFT:
                 ac = e[1] + c
                 if 0 <= ac < W:
-                    grid.add((r + e_off, ac))
+                    grid.add((r + e_off + 1, ac))
 
         # Braille render (two lines)
         lines = []

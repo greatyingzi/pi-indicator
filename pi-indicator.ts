@@ -573,34 +573,32 @@ class CatAnimation {
   }
 }
 
-// ─── 7. Racer Animation (top-down car pixel art, 16x8 two-lane, no color) ─
+// ─── 7. Racer Animation (mini 2×4 top-down car, 16x8 two-lane, no color) ─
 
-// Car template: [row, col] facing RIGHT — 4 rows × 9 dot-columns
+// Mini car: 2 rows × 4 cols, facing RIGHT
+//   .##.   row0: hood
+//   ####   row1: body full width
 const CAR_RIGHT: ReadonlySet<string> = new Set([
-  "0,0","3,0",
-  "0,1","1,1","2,1","3,1",
-  "0,2","1,2","2,2","3,2",
-  "1,3","2,3","1,4","2,4",
-  "1,5","2,5","1,6","2,6",
-  "0,7","1,7","2,7","3,7",
-  "1,8","2,8",
+  "0,1","0,2",
+  "1,0","1,1","1,2","1,3",
 ]);
 
-// Mirrored for left-facing enemies (new_col = 8 - orig_col)
+// Mirrored for left-facing enemies (col → 3-col)
 const CAR_LEFT: ReadonlySet<string> = new Set(
-  [...CAR_RIGHT].map(k => { const [r, c] = k.split(",").map(Number); return `${r},${8 - c}`; })
+  [...CAR_RIGHT].map(k => { const [r, c] = k.split(",").map(Number); return `${r},${3 - c}`; })
 );
 
-const PLAYER_COL = 1;
+const CAR_W = 4;
+const PLAYER_COL = 2;
 
-function laneOffset(lane: number): number { return lane === 0 ? 0 : 4; }
+function laneOff(lane: number): number { return lane === 0 ? 0 : 4; }
 
-function carSet(lane: number, col: number, template: ReadonlySet<string>): Set<string> {
-  const off = laneOffset(lane);
+function carPixels(lane: number, col: number, template: ReadonlySet<string>, rowPad = 1): Set<string> {
+  const off = laneOff(lane);
   const s = new Set<string>();
   for (const k of template) {
     const [r, c] = k.split(",").map(Number);
-    s.add(`${r + off},${col + c}`);
+    s.add(`${r + off + rowPad},${col + c}`);
   }
   return s;
 }
@@ -617,7 +615,7 @@ class RacerAnimation {
 
     // Spawn enemies
     this.spawnTimer++;
-    const interval = Math.max(5, 12 - Math.min(Math.floor(this.overtakes / 3), 7));
+    const interval = Math.max(3, 8 - Math.min(Math.floor(this.overtakes / 4), 5));
     if (this.spawnTimer >= interval) {
       this.spawnTimer = 0;
       const lane = Math.floor(Math.random() * 2);
@@ -630,7 +628,7 @@ class RacerAnimation {
     const survived: [number, number][] = [];
     for (const e of this.enemies) {
       e[1] -= 1;
-      if (e[1] < -10) this.overtakes++;
+      if (e[1] < -(CAR_W + 2)) this.overtakes++;
       else survived.push(e);
     }
     this.enemies = survived;
@@ -638,47 +636,55 @@ class RacerAnimation {
     // AI dodge
     const pc = PLAYER_COL;
     const threats = this.enemies
-      .filter(e => e[0] === this.playerLane && e[1] <= pc + 9 && e[1] + 9 >= pc);
+      .filter(e => e[0] === this.playerLane && e[1] <= pc + CAR_W && e[1] + CAR_W >= pc);
     if (threats.length > 0) {
       const other = 1 - this.playerLane;
       if (!this.enemies.some(oe =>
-        oe[0] === other && oe[1] <= pc + 11 && oe[1] + 9 >= pc - 2)) {
+        oe[0] === other && oe[1] <= pc + CAR_W + 2 && oe[1] + CAR_W >= pc - 1)) {
         this.playerLane = other;
       }
     }
 
     // Collision
-    const pSet = carSet(this.playerLane, pc, CAR_RIGHT);
+    const pSet = carPixels(this.playerLane, pc, CAR_RIGHT);
     for (const e of this.enemies) {
-      const eSet = carSet(e[0], e[1], CAR_LEFT);
-      for (const k of eSet) { if (pSet.has(k)) { this.enemies = []; this.overtakes = Math.max(0, this.overtakes - 5); break; } }
+      const eSet = carPixels(e[0], e[1], CAR_LEFT);
+      for (const k of eSet) { if (pSet.has(k)) { this.enemies = []; this.overtakes = Math.max(0, this.overtakes - 3); break; } }
       if (this.enemies.length === 0) break;
     }
 
-    // ── Render (no color) ──
+    // ── Render ──
     const grid = new Set<string>();
 
-    // Road shoulder dashes
+    // Road edge dashes (row 0 and row 7)
     for (let c = 0; c < W; c++) {
-      if ((c + this.roadPhase) % 4 < 2) {
+      if ((c + this.roadPhase) % 3 < 2) {
         grid.add(`0,${c}`);
         grid.add(`7,${c}`);
       }
     }
 
-    // Player car
+    // Center lane divider (rows 3-4 boundary)
+    for (let c = 0; c < W; c++) {
+      if ((c + this.roadPhase + 1) % 4 < 2) {
+        grid.add(`3,${c}`);
+        grid.add(`4,${c}`);
+      }
+    }
+
+    // Player car (offset +1 row padding)
     for (const k of CAR_RIGHT) {
       const [r, c] = k.split(",").map(Number);
-      grid.add(`${r + laneOffset(this.playerLane)},${pc + c}`);
+      grid.add(`${r + laneOff(this.playerLane) + 1},${pc + c}`);
     }
 
     // Enemy cars
     for (const e of this.enemies) {
-      const off = laneOffset(e[0]);
+      const off = laneOff(e[0]);
       for (const k of CAR_LEFT) {
         const [r, c] = k.split(",").map(Number);
         const ac = e[1] + c;
-        if (ac >= 0 && ac < W) grid.add(`${r + off},${ac}`);
+        if (ac >= 0 && ac < W) grid.add(`${r + off + 1},${ac}`);
       }
     }
 
