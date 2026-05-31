@@ -258,32 +258,26 @@ class PacManAnimation {
   private dots: number[] = []; // column positions of dots
   private spawnTimer: number = 0;
 
-  // Pac-Man side view facing right on a 4-row × 6-col grid (col 0-5)
-  // It's a filled circle with a V-shaped mouth gap on the right
-  //
-  // Open mouth:       Closed:
-  //  ··██··            ··██··
-  //  ███··█            ██████
-  //  ███··█            ██████
-  //  ··██··            ··██··
-  //
-  // The mouth is the missing dots on rows 1-2, cols 3-4
+  // Pac-Man side view facing right, col 0-3
+  // Open mouth:  ··██████ / ████···· / ████···· / ··██████
+  // Closed:      ··██···· / ████··██ / ████··██ / ··████··
   private getPacDots(): Set<string> {
     const s = new Set<string>();
-    // Top curve (row 0) — narrower
-    s.add("0,2"); s.add("0,3");
-    // Bottom curve (row 3) — narrower
-    s.add("3,2"); s.add("3,3");
-    // Left body (rows 1-2)
-    s.add("1,0"); s.add("1,1"); s.add("1,2");
-    s.add("2,0"); s.add("2,1"); s.add("2,2");
-    // Right back edge (rows 1-2, col 5)
-    s.add("1,5"); s.add("2,5");
+    // Col 0: rows 1,2 (always)
+    s.add("1,0"); s.add("2,0");
+    // Col 1: rows 0,1,2,3 (always)
+    s.add("0,1"); s.add("1,1"); s.add("2,1"); s.add("3,1");
 
-    if (!this.mouthOpen) {
-      // Closed: fill the mouth gap (cols 3-4 on rows 1-2)
-      s.add("1,3"); s.add("1,4");
-      s.add("2,3"); s.add("2,4");
+    if (this.mouthOpen) {
+      // Col 2: rows 0,1,3
+      s.add("0,2"); s.add("1,2"); s.add("3,2");
+      // Col 3: rows 0,3
+      s.add("0,3"); s.add("3,3");
+    } else {
+      // Col 2: row 3
+      s.add("3,2");
+      // Col 3: rows 1,2
+      s.add("1,3"); s.add("2,3");
     }
     return s;
   }
@@ -303,8 +297,8 @@ class PacManAnimation {
       this.dots[i]--;
     }
 
-    // Remove dots eaten (col 6 = pac-man front) or past
-    this.dots = this.dots.filter(d => d > 6);
+    // Remove dots eaten (col 4 = pac-man front) or past
+    this.dots = this.dots.filter(d => d > 4);
 
     // Render
     const grid = new Set<string>();
