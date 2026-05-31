@@ -17,11 +17,6 @@ const BRAILLE_OFFSET = 0x2800;
 const EMPTY_BRAILLE = "\u2800";
 const RESET = "\x1b[0m";
 
-const FOOD_COLORS = [
-  "\x1b[38;5;196m", "\x1b[38;5;226m", "\x1b[38;5;46m",
-  "\x1b[38;5;213m", "\x1b[38;5;214m", "\x1b[38;5;129m", "\x1b[38;5;51m",
-];
-
 function toBraille(grid: Set<string>): string {
   const parts: string[] = [];
   for (let cx = 0; cx < W; cx += 2) {
@@ -36,31 +31,22 @@ function toBraille(grid: Set<string>): string {
   return parts.join("");
 }
 
-function toBrailleColored(
-  grid: Set<string>,
-  coloredDots: Set<string>,
-  color: string,
-): string {
-  const parts: string[] = [];
-  for (let cx = 0; cx < W; cx += 2) {
-    let gridVal = 0, colorVal = 0;
-    let hasGrid = false, hasColor = false;
-    for (let r = 0; r < H; r++) {
-      for (let c = 0; c < 2; c++) {
-        const gk = `${r},${cx + c}`, lk = `${r},${c}`;
-        if (grid.has(gk)) { gridVal |= DOT_MAP[lk]; hasGrid = true; }
-        if (coloredDots.has(gk)) { colorVal |= DOT_MAP[lk]; hasColor = true; }
+function toBraille2Line(grid: Set<string>): string {
+  const lines: string[] = [];
+  for (let half = 0; half < 2; half++) {
+    const parts: string[] = [];
+    for (let cx = 0; cx < W; cx += 2) {
+      let val = 0;
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 2; c++) {
+          if (grid.has(`${r + half * 4},${cx + c}`)) val |= DOT_MAP[`${r},${c}`];
+        }
       }
+      parts.push(String.fromCharCode(BRAILLE_OFFSET + val));
     }
-    if (hasColor && !hasGrid) {
-      parts.push(`${color}${String.fromCharCode(BRAILLE_OFFSET + colorVal)}${RESET}`);
-    } else if (hasGrid || hasColor) {
-      parts.push(String.fromCharCode(BRAILLE_OFFSET + (gridVal | colorVal)));
-    } else {
-      parts.push(EMPTY_BRAILLE);
-    }
+    lines.push(parts.join(""));
   }
-  return parts.join("");
+  return lines.join("\n");
 }
 
 // ─── 1. Snake Animation ─────────────────────────────────────────────
@@ -101,11 +87,9 @@ function bfsNext(head: string, food: string, occupied: Set<string>): string | nu
 class SnakeAnimation {
   private snake = ["1,10", "1,9", "1,8", "1,7"];
   private food: string;
-  private foodColor: number;
 
   constructor() {
     this.food = randomFood(this.snake);
-    this.foodColor = Math.floor(Math.random() * FOOD_COLORS.length);
   }
 
   tick(): string {
@@ -128,15 +112,12 @@ class SnakeAnimation {
     if (next === this.food) {
       this.snake.pop();
       this.food = randomFood(this.snake);
-      this.foodColor = Math.floor(Math.random() * FOOD_COLORS.length);
     } else {
       this.snake.pop();
     }
-    return toBrailleColored(
-      new Set(this.snake),
-      new Set([this.food]),
-      FOOD_COLORS[this.foodColor % FOOD_COLORS.length],
-    );
+    const grid = new Set(this.snake);
+    grid.add(this.food);
+    return toBraille(grid);
   }
 }
 
@@ -240,12 +221,9 @@ class BreakoutAnimation {
     grid.add(`${this.paddle},${W - 1}`);
     grid.add(`${this.paddle + 1},${W - 1}`);
     // Ball
-    const ballR = Math.round(this.br);
-    const ballC = Math.round(this.bc);
-    const ballKey = `${ballR},${ballC}`;
-    grid.add(ballKey);
+    grid.add(`${Math.round(this.br)},${Math.round(this.bc)}`);
 
-    return toBrailleColored(grid, new Set([ballKey]), "\x1b[38;5;51m");
+    return toBraille(grid);
   }
 }
 
@@ -313,36 +291,7 @@ class PacManAnimation {
       grid.add(`2,${d}`);
     }
 
-    // Color rendering
-    const PAC_COLOR = "\x1b[38;5;226m"; // yellow
-    const DOT_COLOR = "\x1b[38;5;51m";  // cyan
-
-    const parts: string[] = [];
-    for (let cx = 0; cx < W; cx += 2) {
-      let val = 0, pacVal = 0, dotVal = 0;
-      let hasPac = false, hasDot = false;
-
-      for (let r = 0; r < H; r++) {
-        for (let c = 0; c < 2; c++) {
-          const gk = `${r},${cx + c}`;
-          const lk = `${r},${c}`;
-          if (grid.has(gk)) val |= DOT_MAP[lk];
-          if (pacDots.has(gk)) { pacVal |= DOT_MAP[lk]; hasPac = true; }
-          if (grid.has(gk) && !pacDots.has(gk)) { dotVal |= DOT_MAP[lk]; hasDot = true; }
-        }
-      }
-
-      const ch = String.fromCharCode(BRAILLE_OFFSET + val);
-      if (hasPac && !hasDot) {
-        parts.push(`${PAC_COLOR}${ch}${RESET}`);
-      } else if (hasDot && !hasPac) {
-        parts.push(`${DOT_COLOR}${ch}${RESET}`);
-      } else {
-        parts.push(ch);
-      }
-    }
-
-    return parts.join("");
+    return toBraille(grid);
   }
 }
 
@@ -521,46 +470,15 @@ class InvadersAnimation {
     }
 
     // Render
-    const SHIP_COLOR = "\x1b[38;5;46m";
-    const ALIEN_COLOR = "\x1b[38;5;196m";
-    const BULLET_COLOR = "\x1b[38;5;226m";
-
-    const shipDots = new Set<string>([`${this.shipRow},0`, `${this.shipRow},1`]);
-    const alienDots = new Set<string>(this.aliens);
-    const bulletDots = new Set<string>();
+    const grid = new Set<string>();
+    grid.add(`${this.shipRow},0`);
+    grid.add(`${this.shipRow},1`);
+    for (const key of this.aliens) grid.add(key);
     for (const b of this.bullets) {
-      if (b[1] >= 0 && b[1] < W) bulletDots.add(`${b[0]},${b[1]}`);
+      if (b[1] >= 0 && b[1] < W) grid.add(`${b[0]},${b[1]}`);
     }
 
-    const parts: string[] = [];
-    for (let cx = 0; cx < W; cx += 2) {
-      let val = 0;
-      let hasShip = false, hasAlien = false, hasBullet = false;
-      for (let r = 0; r < H; r++) {
-        for (let c = 0; c < 2; c++) {
-          const gk = `${r},${cx + c}`;
-          if (shipDots.has(gk) || alienDots.has(gk) || bulletDots.has(gk)) {
-            val |= DOT_MAP[`${r},${c}`];
-          }
-          if (shipDots.has(gk)) hasShip = true;
-          if (alienDots.has(gk)) hasAlien = true;
-          if (bulletDots.has(gk)) hasBullet = true;
-        }
-      }
-      const ch = String.fromCharCode(BRAILLE_OFFSET + val);
-      if (val === 0) {
-        parts.push(EMPTY_BRAILLE);
-      } else if (hasAlien && !hasShip && !hasBullet) {
-        parts.push(`${ALIEN_COLOR}${ch}${RESET}`);
-      } else if (hasBullet && !hasShip && !hasAlien) {
-        parts.push(`${BULLET_COLOR}${ch}${RESET}`);
-      } else if (hasShip) {
-        parts.push(`${SHIP_COLOR}${ch}${RESET}`);
-      } else {
-        parts.push(ch);
-      }
-    }
-    return parts.join("");
+    return toBraille(grid);
   }
 }
 
@@ -598,37 +516,14 @@ class HeartAnimation {
     this.phase++;
     const frameIdx = HEART_TIMING[this.phase % HEART_TIMING.length];
     const pixels = HEART_FRAMES[frameIdx];
-    const RED = "\x1b[38;5;196m";
-    const PINK = "\x1b[38;5;213m";
 
-    const lines: string[] = [];
-    for (let half = 0; half < 2; half++) {
-      const parts: string[] = [];
-      for (let cx = 0; cx < W; cx += 2) {
-        let val = 0;
-        for (let r = 0; r < 4; r++) {
-          for (let c = 0; c < 2; c++) {
-            if (pixels.has(`${r + half * 4},${cx + c}`)) val |= DOT_MAP[`${r},${c}`];
-          }
-        }
-        const ch = String.fromCharCode(BRAILLE_OFFSET + val);
-        if (val === 0) parts.push(EMPTY_BRAILLE);
-        else {
-          const color = half === 0 ? PINK : RED;
-          parts.push(`${color}${ch}${RESET}`);
-        }
-      }
-      lines.push(parts.join(""));
-    }
-    return lines.join("\n");
+    return toBraille2Line(pixels);
   }
 }
 
-// ─── 5. Cat Animation (SVG-converted 5-frame pixel, pure yellow) ──
+// ─── 5. Cat Animation (SVG-converted 5-frame pixel, no color) ──
 
-const CAT_YELLOW = "\x1b[38;5;226m";
-
-// SVG-converted 5-frame running cat — pure yellow, no color distinction
+// SVG-converted 5-frame running cat — pure braille, no color
 const CAT_FRAMES: Set<string>[] = [
   // Frame 1
   new Set([
@@ -674,81 +569,45 @@ class CatAnimation {
     this.frameIdx = (this.frameIdx + 1) % CAT_FRAMES.length;
     const pixels = CAT_FRAMES[this.frameIdx];
 
-    const lines: string[] = [];
-    for (let half = 0; half < 2; half++) {
-      const parts: string[] = [];
-      for (let cx = 0; cx < W; cx += 2) {
-        let val = 0;
-        for (let r = 0; r < 4; r++) {
-          for (let c = 0; c < 2; c++) {
-            const gk = `${r + half * 4},${cx + c}`;
-            if (pixels.has(gk)) {
-              val |= DOT_MAP[`${r},${c}`];
-            }
-          }
-        }
-        const ch = String.fromCharCode(BRAILLE_OFFSET + val);
-        if (val === 0) parts.push(EMPTY_BRAILLE);
-        else parts.push(`${CAT_YELLOW}${ch}${RESET}`);
-      }
-      lines.push(parts.join(""));
-    }
-    return lines.join("\n");
+    return toBraille2Line(pixels);
   }
 }
 
-// ─── 7. Racer Animation (top-down car pixel art, 16x8 two-lane) ──────
-
-const RACER_GRAY = "\x1b[38;5;237m";
-const RACER_DASH = "\x1b[38;5;244m";
-const RACER_GREEN = "\x1b[38;5;82m";
-const RACER_CYAN = "\x1b[38;5;87m";
-const RACER_CAR_COLORS = [
-  "\x1b[38;5;196m",   // red
-  "\x1b[38;5;214m",   // orange
-  "\x1b[38;5;69m",    // blue
-  "\x1b[38;5;201m",   // magenta
-  "\x1b[38;5;226m",   // yellow
-];
+// ─── 7. Racer Animation (top-down car pixel art, 16x8 two-lane, no color) ─
 
 // Car template: [row, col] facing RIGHT — 4 rows × 9 dot-columns
-const CAR_PIXELS: [number, number][] = [
-  [0,0],[3,0],               // front wheel arches
-  [0,1],[1,1],[2,1],[3,1],   // hood full width
-  [0,2],[1,2],[2,2],[3,2],   // hood full width
-  [1,3],[2,3],               // windshield
-  [1,4],[2,4],               // windshield
-  [1,5],[2,5],               // roof
-  [1,6],[2,6],               // roof
-  [0,7],[1,7],[2,7],[3,7],   // rear axle full width
-  [1,8],[2,8],               // tail
-];
+const CAR_RIGHT: ReadonlySet<string> = new Set([
+  "0,0","3,0",
+  "0,1","1,1","2,1","3,1",
+  "0,2","1,2","2,2","3,2",
+  "1,3","2,3","1,4","2,4",
+  "1,5","2,5","1,6","2,6",
+  "0,7","1,7","2,7","3,7",
+  "1,8","2,8",
+]);
 
-// Mirrored pixels for left-facing enemies (new_col = 8 - orig_col)
-const MIRRORED_PIXELS: [number, number][] = CAR_PIXELS.map(([r, c]) => [r, 8 - c]);
+// Mirrored for left-facing enemies (new_col = 8 - orig_col)
+const CAR_LEFT: ReadonlySet<string> = new Set(
+  [...CAR_RIGHT].map(k => { const [r, c] = k.split(",").map(Number); return `${r},${8 - c}`; })
+);
 
-// Color category sets (original template coords)
-const WHEEL_SET = new Set(["0,0","3,0","0,7","3,7"]);
-const WINDSHIELD_SET = new Set(["1,3","2,3","1,4","2,4"]);
-const TAIL_SET = new Set(["1,8","2,8"]);
+const PLAYER_COL = 1;
 
-const PLAYER_COL = 1; // base column for player car (cols 1-9)
+function laneOffset(lane: number): number { return lane === 0 ? 0 : 4; }
 
-function rowOffset(lane: number): number {
-  return lane === 0 ? 0 : 4;
-}
-
-function pixelColor(r: number, c: number, bodyColor: string): string {
-  const key = `${r},${c}`;
-  if (WHEEL_SET.has(key)) return RACER_GRAY;
-  if (WINDSHIELD_SET.has(key)) return RACER_CYAN;
-  if (TAIL_SET.has(key)) return RACER_GRAY;
-  return bodyColor;
+function carSet(lane: number, col: number, template: ReadonlySet<string>): Set<string> {
+  const off = laneOffset(lane);
+  const s = new Set<string>();
+  for (const k of template) {
+    const [r, c] = k.split(",").map(Number);
+    s.add(`${r + off},${col + c}`);
+  }
+  return s;
 }
 
 class RacerAnimation {
   private playerLane = 0;
-  private enemies: [number, number, number][] = []; // [lane, col, colorIdx]
+  private enemies: [number, number][] = []; // [lane, col]
   private overtakes = 0;
   private spawnTimer = 0;
   private roadPhase = 0;
@@ -756,21 +615,19 @@ class RacerAnimation {
   tick(): string {
     this.roadPhase++;
 
-    // Spawn enemy cars (wider cars need more spacing)
+    // Spawn enemies
     this.spawnTimer++;
     const interval = Math.max(5, 12 - Math.min(Math.floor(this.overtakes / 3), 7));
     if (this.spawnTimer >= interval) {
       this.spawnTimer = 0;
       const lane = Math.floor(Math.random() * 2);
-      const blocked = this.enemies.some(e => e[0] === lane && e[1] >= W - 4);
-      if (!blocked) {
-        const ci = Math.floor(Math.random() * RACER_CAR_COLORS.length);
-        this.enemies.push([lane, W + 1, ci]);
+      if (!this.enemies.some(e => e[0] === lane && e[1] >= W - 2)) {
+        this.enemies.push([lane, W + 1]);
       }
     }
 
     // Move enemies left
-    const survived: [number, number, number][] = [];
+    const survived: [number, number][] = [];
     for (const e of this.enemies) {
       e[1] -= 1;
       if (e[1] < -10) this.overtakes++;
@@ -778,95 +635,66 @@ class RacerAnimation {
     }
     this.enemies = survived;
 
-    // AI: dodge — look for threats in current lane approaching player
+    // AI dodge
     const pc = PLAYER_COL;
     const threats = this.enemies
-      .filter(e => e[0] === this.playerLane && e[1] <= pc + 8 && e[1] + 8 >= pc);
+      .filter(e => e[0] === this.playerLane && e[1] <= pc + 9 && e[1] + 9 >= pc);
     if (threats.length > 0) {
       const other = 1 - this.playerLane;
-      const safe = !this.enemies.some(oe =>
-        oe[0] === other && oe[1] <= pc + 10 && oe[1] + 8 >= pc - 2);
-      if (safe) this.playerLane = other;
-    }
-
-    // Collision check (pixel-level overlap)
-    const pOff = rowOffset(this.playerLane);
-    const playerSet = new Set<string>();
-    for (const [r, c] of CAR_PIXELS) {
-      playerSet.add(`${r + pOff},${pc + c}`);
-    }
-    let collided = false;
-    for (const e of this.enemies) {
-      const eOff = rowOffset(e[0]);
-      for (const [r, mc] of MIRRORED_PIXELS) {
-        if (playerSet.has(`${r + eOff},${e[1] + mc}`)) {
-          collided = true;
-          break;
-        }
+      if (!this.enemies.some(oe =>
+        oe[0] === other && oe[1] <= pc + 11 && oe[1] + 9 >= pc - 2)) {
+        this.playerLane = other;
       }
-      if (collided) break;
-    }
-    if (collided) {
-      this.enemies = [];
-      this.overtakes = Math.max(0, this.overtakes - 5);
     }
 
-    // ── Render ──
+    // Collision
+    const pSet = carSet(this.playerLane, pc, CAR_RIGHT);
+    for (const e of this.enemies) {
+      const eSet = carSet(e[0], e[1], CAR_LEFT);
+      for (const k of eSet) { if (pSet.has(k)) { this.enemies = []; this.overtakes = Math.max(0, this.overtakes - 5); break; } }
+      if (this.enemies.length === 0) break;
+    }
+
+    // ── Render (no color) ──
     const grid = new Set<string>();
-    const colorMap = new Map<string, string>();
 
-    // Road shoulder dashes — top edge (row 0) and bottom edge (row 7)
+    // Road shoulder dashes
     for (let c = 0; c < W; c++) {
       if ((c + this.roadPhase) % 4 < 2) {
-        grid.add(`0,${c}`); colorMap.set(`0,${c}`, RACER_DASH);
-        grid.add(`7,${c}`); colorMap.set(`7,${c}`, RACER_DASH);
+        grid.add(`0,${c}`);
+        grid.add(`7,${c}`);
       }
     }
 
-    // Player car (facing right, template as-is)
-    const pOff2 = rowOffset(this.playerLane);
-    for (const [r, c] of CAR_PIXELS) {
-      const absR = r + pOff2;
-      const absC = PLAYER_COL + c;
-      const color = pixelColor(r, c, RACER_GREEN);
-      const k = `${absR},${absC}`;
-      grid.add(k); colorMap.set(k, color);
+    // Player car
+    for (const k of CAR_RIGHT) {
+      const [r, c] = k.split(",").map(Number);
+      grid.add(`${r + laneOffset(this.playerLane)},${pc + c}`);
     }
 
-    // Enemy cars (facing left, mirrored template)
+    // Enemy cars
     for (const e of this.enemies) {
-      const bodyColor = RACER_CAR_COLORS[e[2]];
-      const eOff = rowOffset(e[0]);
-      for (const [r, mc] of MIRRORED_PIXELS) {
-        const absC = e[1] + mc;
-        if (absC >= 0 && absC < W) {
-          const origC = 8 - mc; // reverse mirror for color lookup
-          const color = pixelColor(r, origC, bodyColor);
-          const k = `${r + eOff},${absC}`;
-          grid.add(k); colorMap.set(k, color);
-        }
+      const off = laneOffset(e[0]);
+      for (const k of CAR_LEFT) {
+        const [r, c] = k.split(",").map(Number);
+        const ac = e[1] + c;
+        if (ac >= 0 && ac < W) grid.add(`${r + off},${ac}`);
       }
     }
 
-    // Braille render (two lines, each 4 dot-rows)
+    // Braille render (two lines)
     const lines: string[] = [];
     for (let half = 0; half < 2; half++) {
       const parts: string[] = [];
       for (let cx = 0; cx < W; cx += 2) {
         let val = 0;
-        let color: string | undefined;
         for (let r = 0; r < 4; r++) {
           for (let c = 0; c < 2; c++) {
-            const gk = `${r + half * 4},${cx + c}`;
-            if (grid.has(gk)) val |= DOT_MAP[`${r},${c}`];
-            const clr = colorMap.get(gk);
-            if (clr) color = clr;
+            if (grid.has(`${r + half * 4},${cx + c}`))
+              val |= DOT_MAP[`${r},${c}`];
           }
         }
-        const ch = String.fromCharCode(BRAILLE_OFFSET + val);
-        if (val === 0) parts.push(EMPTY_BRAILLE);
-        else if (color) parts.push(`${color}${ch}${RESET}`);
-        else parts.push(ch);
+        parts.push(String.fromCharCode(BRAILLE_OFFSET + val));
       }
       lines.push(parts.join(""));
     }

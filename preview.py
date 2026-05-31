@@ -28,11 +28,6 @@ EMPTY_BRAILLE = "\u2800"
 RESET = "\x1b[0m"
 CLEAR_LINE = "\x1b[2K"
 
-FOOD_COLORS = [
-    "\x1b[38;5;196m", "\x1b[38;5;226m", "\x1b[38;5;46m",
-    "\x1b[38;5;213m", "\x1b[38;5;214m", "\x1b[38;5;129m", "\x1b[38;5;51m",
-]
-
 DIRS = [(0, 1), (0, -1), (1, 0), (-1, 0)]
 
 
@@ -53,31 +48,22 @@ def to_braille(grid):
     return "".join(parts)
 
 
-def to_braille_colored(grid, colored_dots, color):
-    """Render grid with colored highlights."""
-    parts = []
-    for cx in range(0, W, 2):
-        grid_val = 0
-        color_val = 0
-        has_grid = False
-        has_color = False
-        for r in range(H):
-            for c in range(2):
-                gk = f"{r},{cx + c}"
-                lk = (r, c)
-                if gk in grid:
-                    grid_val |= DOT_MAP[lk]
-                    has_grid = True
-                if gk in colored_dots:
-                    color_val |= DOT_MAP[lk]
-                    has_color = True
-        if has_color and not has_grid:
-            parts.append(f"{color}{chr_braille(color_val)}{RESET}")
-        elif has_grid or has_color:
-            parts.append(chr_braille(grid_val | color_val))
-        else:
-            parts.append(EMPTY_BRAILLE)
-    return "".join(parts)
+def to_braille_2line(grid, W2=None):
+    """Render grid (set of (row,col) tuples) as two-line braille (16x8)."""
+    if W2 is None:
+        W2 = W
+    lines = []
+    for half in range(2):
+        parts = []
+        for cx in range(0, W2, 2):
+            val = 0
+            for r in range(4):
+                for c in range(2):
+                    if (r + half * 4, cx + c) in grid:
+                        val |= DOT_MAP[(r, c)]
+            parts.append(chr_braille(val))
+        lines.append("".join(parts))
+    return "\n".join(lines)
 
 
 # ─── 1. Snake Animation ─────────────────────────────────────────────
@@ -114,7 +100,6 @@ class SnakeAnimation:
     def __init__(self):
         self.snake = ["1,10", "1,9", "1,8", "1,7"]
         self.food = random_food(self.snake)
-        self.food_color = random.randint(0, len(FOOD_COLORS) - 1)
 
     def tick(self):
         head = self.snake[0]
@@ -134,14 +119,11 @@ class SnakeAnimation:
         if nxt == self.food:
             self.snake.pop()
             self.food = random_food(self.snake)
-            self.food_color = random.randint(0, len(FOOD_COLORS) - 1)
         else:
             self.snake.pop()
-        return to_braille_colored(
-            set(self.snake),
-            {self.food},
-            FOOD_COLORS[self.food_color % len(FOOD_COLORS)],
-        )
+        grid = set(self.snake)
+        grid.add(self.food)
+        return to_braille(grid)
 
 
 # ─── 2. Breakout Animation ──────────────────────────────────────────
@@ -204,9 +186,8 @@ class BreakoutAnimation:
         grid = set(self.bricks)
         grid.add(f"{self.paddle},{W - 1}")
         grid.add(f"{self.paddle + 1},{W - 1}")
-        ball_key = f"{round(self.br)},{round(self.bc)}"
-        grid.add(ball_key)
-        return to_braille_colored(grid, {ball_key}, "\x1b[38;5;51m")
+        grid.add(f"{round(self.br)},{round(self.bc)}")
+        return to_braille(grid)
 
 
 # ─── 3. Pac-Man Animation ──────────────────────────────────────────
@@ -238,28 +219,11 @@ class PacManAnimation:
         self.dots = [d for d in self.dots if d > 4]
 
         grid = set()
-        pac_dots = self._get_pac_dots()
-        grid.update(pac_dots)
+        grid.update(self._get_pac_dots())
         for d in self.dots:
             grid.add(f"2,{d}")
 
-        PAC = "\x1b[38;5;226m"
-        DOT = "\x1b[38;5;51m"
-        parts = []
-        for cx in range(0, W, 2):
-            val = pac_val = dot_val = 0
-            has_pac = has_dot = False
-            for r in range(H):
-                for c in range(2):
-                    gk = f"{r},{cx + c}"
-                    if gk in grid: val |= DOT_MAP[(r, c)]
-                    if gk in pac_dots: pac_val |= DOT_MAP[(r, c)]; has_pac = True
-                    elif gk in grid: dot_val |= DOT_MAP[(r, c)]; has_dot = True
-            ch = chr_braille(val)
-            if has_pac and not has_dot: parts.append(f"{PAC}{ch}{RESET}")
-            elif has_dot and not has_pac: parts.append(f"{DOT}{ch}{RESET}")
-            else: parts.append(ch)
-        return "".join(parts)
+        return to_braille(grid)
 
 
 
@@ -298,10 +262,10 @@ class EqualizerAnimation:
         return to_braille(grid)
 
 
-# ─── 5. Cat Animation (SVG-converted 5-frame pixel, pure yellow) ──
+# ─── 5. Cat Animation (SVG-converted 5-frame pixel, no color) ──
 
 class CatAnimation:
-    # SVG-converted 5-frame running cat — pure yellow, no color distinction
+    # SVG-converted 5-frame running cat — pure braille, no color
     # Each frame is a frozenset of (row, col) pixel tuples
     FRAMES = [
         # Frame 1
@@ -342,25 +306,9 @@ class CatAnimation:
     def tick(self):
         self.frame_idx = (self.frame_idx + 1) % len(self.FRAMES)
         pixels = self.FRAMES[self.frame_idx]
-        YELLOW = "\x1b[38;5;226m"
 
-        lines = []
-        for half in range(2):
-            parts = []
-            for cx in range(0, W, 2):
-                val = 0
-                for r in range(4):
-                    for c in range(2):
-                        gk = (r + half*4, cx + c)
-                        if gk in pixels:
-                            val |= DOT_MAP[(r,c)]
-                ch = chr_braille(val)
-                if val == 0:
-                    parts.append(EMPTY_BRAILLE)
-                else:
-                    parts.append(f"{YELLOW}{ch}{RESET}")
-            lines.append("".join(parts))
-        return "\n".join(lines)
+        # Convert pixel tuples to (row, col) set for to_braille_2line
+        return to_braille_2line(pixels)
 
 
 # ─── 6. Heart Animation (heartbeat, 16x8 two-line) ────────────────
@@ -402,27 +350,7 @@ class HeartAnimation:
         frame_idx = self.TIMING[self.phase % len(self.TIMING)]
         pixels = self.FRAMES[frame_idx]
 
-        RED = "\x1b[38;5;196m"
-        PINK = "\x1b[38;5;213m"
-
-        lines = []
-        for half in range(2):
-            parts = []
-            for cx in range(0, W, 2):
-                val = 0
-                for r in range(4):
-                    for c in range(2):
-                        gk = (r + half * 4, cx + c)
-                        if gk in pixels:
-                            val |= DOT_MAP[(r, c)]
-                ch = chr_braille(val)
-                if val == 0:
-                    parts.append(EMPTY_BRAILLE)
-                else:
-                    color = PINK if half == 0 else RED
-                    parts.append(f"{color}{ch}{RESET}")
-            lines.append("".join(parts))
-        return "\n".join(lines)
+        return to_braille_2line(pixels)
 
 
 # ─── 7. Wave Animation (flowing sine, 16x8 two-line) ───────────────
@@ -437,70 +365,37 @@ class WaveAnimation:
         self.phase += 0.3
 
         grid = set()
-        color_map = {}
-
-        BLUE = "\x1b[38;5;39m"
-        CYAN = "\x1b[38;5;51m"
-        SEA  = "\x1b[38;5;72m"
 
         for c in range(W):
             r1 = int(round(4 + 2.5 * math.sin(c * 2 * math.pi / W + self.phase)))
             r2 = int(round(4 + 1.5 * math.sin(c * 2 * math.pi / W * 2 - self.phase * 0.7 + 1.0)))
             r3 = int(round(5 + 1.0 * math.sin(c * 2 * math.pi / W * 0.5 + self.phase * 0.3)))
 
-            for r, color in [(r1, BLUE), (r2, CYAN), (r3, SEA)]:
+            for r in [r1, r2, r3]:
                 if 0 <= r < 8:
                     grid.add((r, c))
-                    color_map[(r, c)] = color
 
-        lines = []
-        for half in range(2):
-            parts = []
-            for cx in range(0, W, 2):
-                val = 0
-                color = None
-                for r in range(4):
-                    for c in range(2):
-                        gk = (r + half * 4, cx + c)
-                        if gk in grid:
-                            val |= DOT_MAP[(r, c)]
-                        if gk in color_map:
-                            color = color_map[gk]
-                ch = chr_braille(val)
-                if val == 0:
-                    parts.append(EMPTY_BRAILLE)
-                elif color:
-                    parts.append(f"{color}{ch}{RESET}")
-                else:
-                    parts.append(ch)
-            lines.append("".join(parts))
-        return "\n".join(lines)
+        return to_braille_2line(grid)
 
 
 # ─── 8. Fireworks Animation (exploding particles, 16x8 two-line) ────
 
 class FireworksAnimation:
-    """Fireworks: rockets launch upward and burst into colored particles."""
-
-    COLORS = [
-        "\x1b[38;5;196m", "\x1b[38;5;226m", "\x1b[38;5;46m",
-        "\x1b[38;5;51m", "\x1b[38;5;213m", "\x1b[38;5;129m",
-    ]
+    """Fireworks: rockets launch upward and burst into particles."""
 
     def __init__(self):
-        self.particles = []   # [[r, c, vr, vc, life, color], ...]
+        self.particles = []   # [[r, c, vr, vc, life], ...]
         self.rockets = []     # [[c, row], ...]
         self.timer = 0
 
     def _explode(self, c, r):
-        color = random.choice(self.COLORS)
         for _ in range(14):
             angle = random.uniform(0, 2 * math.pi)
             speed = random.uniform(0.3, 1.2)
             vr = speed * math.sin(angle)
             vc = speed * math.cos(angle)
             life = random.randint(6, 14)
-            self.particles.append([r, c, vr, vc, life, color])
+            self.particles.append([r, c, vr, vc, life])
 
     def tick(self):
         self.timer += 1
@@ -534,40 +429,16 @@ class FireworksAnimation:
 
         # Build grid
         grid = set()
-        color_map = {}
         for p in self.particles:
             r, c = int(round(p[0])), int(round(p[1]))
             if 0 <= r < 8 and 0 <= c < W:
                 grid.add((r, c))
-                color_map[(r, c)] = p[5]
         for c, r in self.rockets:
             ri = int(round(r))
             if 0 <= ri < 8 and 0 <= c < W:
                 grid.add((ri, c))
-                color_map[(ri, c)] = "\x1b[38;5;226m"
 
-        lines = []
-        for half in range(2):
-            parts = []
-            for cx in range(0, W, 2):
-                val = 0
-                color = None
-                for r in range(4):
-                    for c in range(2):
-                        gk = (r + half * 4, cx + c)
-                        if gk in grid:
-                            val |= DOT_MAP[(r, c)]
-                        if gk in color_map:
-                            color = color_map[gk]
-                ch = chr_braille(val)
-                if val == 0:
-                    parts.append(EMPTY_BRAILLE)
-                elif color:
-                    parts.append(f"{color}{ch}{RESET}")
-                else:
-                    parts.append(ch)
-            lines.append("".join(parts))
-        return "\n".join(lines)
+        return to_braille_2line(grid)
 
 
 # ─── 9. Invaders Animation (horizontal) ─────────────────────────────
@@ -674,37 +545,15 @@ class InvadersAnimation:
                 self._spawn_aliens()
 
         # Render
-        SHIP = "\x1b[38;5;46m"
-        ALIEN = "\x1b[38;5;196m"
-        BULLET = "\x1b[38;5;226m"
-        ship_dots = {f"{self.ship_row},0", f"{self.ship_row},1"}
-        alien_dots = set(self.aliens)
-        bullet_dots = set(f"{b[0]},{b[1]}" for b in self.bullets if 0 <= b[1] < W)
+        grid = set()
+        grid.add(f"{self.ship_row},0")
+        grid.add(f"{self.ship_row},1")
+        grid.update(self.aliens)
+        for b in self.bullets:
+            if 0 <= b[1] < W:
+                grid.add(f"{b[0]},{b[1]}")
 
-        parts = []
-        for cx in range(0, W, 2):
-            val = 0
-            has_ship = has_alien = has_bullet = False
-            for r in range(H):
-                for c in range(2):
-                    gk = f"{r},{cx + c}"
-                    if gk in ship_dots or gk in alien_dots or gk in bullet_dots:
-                        val |= DOT_MAP[(r, c)]
-                    if gk in ship_dots: has_ship = True
-                    if gk in alien_dots: has_alien = True
-                    if gk in bullet_dots: has_bullet = True
-            ch = chr_braille(val)
-            if val == 0:
-                parts.append(EMPTY_BRAILLE)
-            elif has_alien and not has_ship and not has_bullet:
-                parts.append(f"{ALIEN}{ch}{RESET}")
-            elif has_bullet and not has_ship and not has_alien:
-                parts.append(f"{BULLET}{ch}{RESET}")
-            elif has_ship:
-                parts.append(f"{SHIP}{ch}{RESET}")
-            else:
-                parts.append(ch)
-        return "".join(parts)
+        return to_braille(grid)
 
 
 # ─── 10. Racer Animation (horizontal 2-lane, top-down car pixel art 16x8) ──
@@ -712,170 +561,104 @@ class InvadersAnimation:
 class RacerAnimation:
     """Side-scrolling 2-lane racer on 16x8 canvas (two braille lines).
     Lane 0: rows 0-3 (upper braille line), Lane 1: rows 4-7 (lower).
-    Cars are 4-row × 9-dot-col NES-style top-down pixel art.
+    Cars are 4-row × 9-dot-col NES-style top-down pixel art. No color.
     """
 
-    # Car template pixels (row, col) facing RIGHT — use as-is for player
-    CAR_PIXELS = [
-        (0,0), (3,0),               # front wheel arches
-        (0,1), (1,1), (2,1), (3,1), # hood full width
-        (0,2), (1,2), (2,2), (3,2), # hood full width
-        (1,3), (2,3),               # windshield
-        (1,4), (2,4),               # windshield
-        (1,5), (2,5),               # roof
-        (1,6), (2,6),               # roof
-        (0,7), (1,7), (2,7), (3,7), # rear axle full width
-        (1,8), (2,8),               # tail
-    ]
-    # Pre-computed mirrored pixels for left-facing enemies
-    MIRRORED_PIXELS = [(r, 8 - c) for r, c in CAR_PIXELS]
+    # Car template pixels (row, col) facing RIGHT
+    CAR_RIGHT = frozenset({
+        (0,0),(3,0),
+        (0,1),(1,1),(2,1),(3,1),
+        (0,2),(1,2),(2,2),(3,2),
+        (1,3),(2,3),(1,4),(2,4),
+        (1,5),(2,5),(1,6),(2,6),
+        (0,7),(1,7),(2,7),(3,7),
+        (1,8),(2,8),
+    })
+    # Mirrored for left-facing enemies
+    CAR_LEFT = frozenset((r, 8 - c) for r, c in CAR_RIGHT)
 
-    # Color category sets (original template coords)
-    WHEEL_SET = frozenset({(0,0), (3,0), (0,7), (3,7)})
-    WINDSHIELD_SET = frozenset({(1,3), (2,3), (1,4), (2,4)})
-    TAIL_SET = frozenset({(1,8), (2,8)})
-
-    CAR_COLORS = [
-        "\x1b[38;5;196m",   # red
-        "\x1b[38;5;214m",   # orange
-        "\x1b[38;5;69m",    # blue
-        "\x1b[38;5;201m",   # magenta
-        "\x1b[38;5;226m",   # yellow
-    ]
-
-    PLAYER_COL = 1   # base column for player car (cols 1-9)
+    PLAYER_COL = 1
 
     def __init__(self):
         self.player_lane = 0
-        self.enemies = []      # [[lane, col, color_idx], ...]
+        self.enemies = []      # [[lane, col], ...]
         self.overtakes = 0
         self.spawn_timer = 0
         self.road_phase = 0
 
-    @staticmethod
-    def _row_offset(lane):
-        """Row offset for a lane: 0 for lane 0, 4 for lane 1."""
-        return 0 if lane == 0 else 4
-
-    def _pixel_color(self, r, c, body_color):
-        """Determine color for a template pixel by its role."""
-        if (r, c) in self.WHEEL_SET:
-            return "\x1b[38;5;237m"   # gray
-        if (r, c) in self.WINDSHIELD_SET:
-            return "\x1b[38;5;87m"    # cyan
-        if (r, c) in self.TAIL_SET:
-            return "\x1b[38;5;237m"   # gray
-        return body_color
-
     def tick(self):
         self.road_phase += 1
 
-        # Spawn enemy cars (wider cars need more spacing)
+        # Spawn enemies
         self.spawn_timer += 1
         interval = max(5, 12 - min(self.overtakes // 3, 7))
         if self.spawn_timer >= interval:
             self.spawn_timer = 0
             lane = random.randint(0, 1)
-            blocked = any(e[0] == lane and e[1] >= W - 4 for e in self.enemies)
-            if not blocked:
-                ci = random.randint(0, len(self.CAR_COLORS) - 1)
-                self.enemies.append([lane, W + 1, ci])
+            if not any(e[0] == lane and e[1] >= W - 2 for e in self.enemies):
+                self.enemies.append([lane, W + 1])
 
         # Move enemies left
         survived = []
         for e in self.enemies:
             e[1] -= 1
-            if e[1] < -10:
-                self.overtakes += 1
-            else:
-                survived.append(e)
+            if e[1] < -10: self.overtakes += 1
+            else: survived.append(e)
         self.enemies = survived
 
-        # AI: dodge — look for threats in current lane approaching player
+        # AI dodge
         pc = self.PLAYER_COL
         threats = [e for e in self.enemies
-                   if e[0] == self.player_lane and e[1] <= pc + 8 and e[1] + 8 >= pc]
+                   if e[0] == self.player_lane and e[1] <= pc + 9 and e[1] + 9 >= pc]
         if threats:
             other = 1 - self.player_lane
-            safe = not any(oe[0] == other and oe[1] <= pc + 10 and oe[1] + 8 >= pc - 2
-                           for oe in self.enemies)
-            if safe:
+            if not any(oe[0] == other and oe[1] <= pc + 11 and oe[1] + 9 >= pc - 2
+                       for oe in self.enemies):
                 self.player_lane = other
 
-        # Collision check (pixel-level overlap)
-        p_off = self._row_offset(self.player_lane)
-        player_set = set()
-        for r, c in self.CAR_PIXELS:
-            player_set.add((r + p_off, pc + c))
-        collided = False
+        # Collision
+        p_off = 0 if self.player_lane == 0 else 4
+        p_set = frozenset((r + p_off, pc + c) for r, c in self.CAR_RIGHT)
         for e in self.enemies:
-            e_off = self._row_offset(e[0])
-            for r, mc in self.MIRRORED_PIXELS:
-                if (r + e_off, e[1] + mc) in player_set:
-                    collided = True
-                    break
-            if collided:
+            e_off = 0 if e[0] == 0 else 4
+            e_set = frozenset((r + e_off, e[1] + c) for r, c in self.CAR_LEFT)
+            if p_set & e_set:
+                self.enemies.clear()
+                self.overtakes = max(0, self.overtakes - 5)
                 break
-        if collided:
-            self.enemies.clear()
-            self.overtakes = max(0, self.overtakes - 5)
 
-        # ── Render ──
+        # ── Render (no color, just dots) ──
         grid = set()
-        color_map = {}
 
-        GRAY = "\x1b[38;5;237m"
-        DASH = "\x1b[38;5;244m"
-        GREEN = "\x1b[38;5;82m"
-
-        # Road shoulder dashes — top edge (row 0) and bottom edge (row 7)
+        # Road shoulder dashes (row 0 and row 7)
         for c in range(W):
             if (c + self.road_phase) % 4 < 2:
-                grid.add((0, c)); color_map[(0, c)] = DASH
-            if (c + self.road_phase) % 4 < 2:
-                grid.add((7, c)); color_map[(7, c)] = DASH
+                grid.add((0, c))
+                grid.add((7, c))
 
-        # Player car (facing right, template as-is)
-        p_off = self._row_offset(self.player_lane)
-        for r, c in self.CAR_PIXELS:
-            abs_r = r + p_off
-            abs_c = self.PLAYER_COL + c
-            color = self._pixel_color(r, c, GREEN)
-            grid.add((abs_r, abs_c)); color_map[(abs_r, abs_c)] = color
+        # Player car
+        for r, c in self.CAR_RIGHT:
+            grid.add((r + p_off, pc + c))
 
-        # Enemy cars (facing left, mirrored template)
+        # Enemy cars
         for e in self.enemies:
-            body_color = self.CAR_COLORS[e[2]]
-            e_off = self._row_offset(e[0])
-            for r, mc in self.MIRRORED_PIXELS:
-                abs_c = e[1] + mc
-                if 0 <= abs_c < W:
-                    orig_c = 8 - mc   # reverse mirror for color lookup
-                    color = self._pixel_color(r, orig_c, body_color)
-                    grid.add((r + e_off, abs_c))
-                    color_map[(r + e_off, abs_c)] = color
+            e_off = 0 if e[0] == 0 else 4
+            for r, c in self.CAR_LEFT:
+                ac = e[1] + c
+                if 0 <= ac < W:
+                    grid.add((r + e_off, ac))
 
-        # Braille render (two lines, each 4 dot-rows)
+        # Braille render (two lines)
         lines = []
         for half in range(2):
             parts = []
             for cx in range(0, W, 2):
                 val = 0
-                color = None
                 for r in range(4):
                     for c in range(2):
-                        gk = (r + half * 4, cx + c)
-                        if gk in grid:
+                        if (r + half * 4, cx + c) in grid:
                             val |= DOT_MAP[(r, c)]
-                        if gk in color_map:
-                            color = color_map[gk]
-                ch = chr_braille(val)
-                if val == 0:
-                    parts.append(EMPTY_BRAILLE)
-                elif color:
-                    parts.append(f"{color}{ch}{RESET}")
-                else:
-                    parts.append(ch)
+                parts.append(chr_braille(val))
             lines.append("".join(parts))
         return "\n".join(lines)
 
