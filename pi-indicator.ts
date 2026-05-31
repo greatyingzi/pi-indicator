@@ -600,6 +600,15 @@ const RACER_CAR_TEMPLATES: Record<string, ReadonlySet<string>> = {
 };
 const RACER_CAR_WIDTHS: Record<string, number> = { small: 3, standard: 4, truck: 6 };
 
+// Explosion frames: expanding then fading cross pattern
+const EXPLODE_FRAMES: ReadonlyArray<ReadonlySet<string>> = [
+  new Set(["0,0","0,1","0,2","1,0","1,1","1,2","2,0","2,1","2,2"]),
+  new Set(["0,0","0,2","1,1","2,0","2,2"]),
+  new Set(["0,0","0,2","1,1","2,0","2,2"]),
+  new Set(["1,1"]),
+];
+const EXPLODE_COLOR = "\x1b[38;5;202m"; // orange-red
+
 function racerLaneOff(lane: number): number {
   return (lane === 0 ? 0 : 4) + 1;
 }
@@ -622,9 +631,29 @@ class RacerAnimation {
   private npcs: RacerNPCData[] = [];
   private spawnTimer = 0;
   private ticks = 0;
+  private exploding = 0;   // frames remaining for explosion
+  private explodeCol = 0;  // explosion column
 
   private difficulty(): number {
     return Math.min(this.ticks / 500, 1.0);
+  }
+
+  private npcWidth(npc: RacerNPCData): number {
+    return RACER_CAR_WIDTHS[npc.tmplKey];
+  }
+
+  private canSwitchLane(npc: RacerNPCData, targetLane: number): boolean {
+    const colI = Math.round(npc.col);
+    const nw = this.npcWidth(npc);
+    for (const other of this.npcs) {
+      if (other === npc) continue;
+      if (other.lane !== targetLane) continue;
+      const oc = Math.round(other.col);
+      const ow = this.npcWidth(other);
+      // need at least 2 cols gap
+      if (!(colI + nw + 2 <= oc || oc + ow + 2 <= colI)) return false;
+    }
+    return true;
   }
 
   private pickNpcType(): string {
@@ -646,8 +675,18 @@ class RacerAnimation {
 
   private spawnNPC(): void {
     const lane = Math.floor(Math.random() * 2);
+    // keep gap in the same lane
     if (this.npcs.some(n => n.lane === lane && n.col >= W - 8)) return;
     const npcType = this.pickNpcType();
+    // Also check spacing to avoid spawning on top of same-lane NPCs
+    const newW = RACER_CAR_WIDTHS[RACER_NPC_DEFS[npcType].tmpl];
+    for (const npc of this.npcs) {
+      if (npc.lane !== lane) continue;
+      const nw = this.npcWidth(npc);
+      const oc = Math.round(npc.col);
+      // Ensure new NPC at col W+1 doesn't overlap
+      if (!(W + 1 + newW + 2 <= oc || oc + nw + 2 <= W + 1)) return;
+    }
     const def = RACER_NPC_DEFS[npcType];
     this.npcs.push({
       lane, col: W + 1,
@@ -663,6 +702,26 @@ class RacerAnimation {
 
   tick(): string {
     this.ticks++;
+
+    // ── Explosion phase ──
+    if (this.exploding > 0) {
+      this.exploding--;
+      const colorMap = new Map<string, string>();
+      let frameIdx = EXPLODE_FRAMES.length - 1 - this.exploding;
+      if (frameIdx < 0) frameIdx = 0;
+      if (frameIdx >= EXPLODE_FRAMES.length) frameIdx = EXPLODE_FRAMES.length - 1;
+      const pattern = EXPLODE_FRAMES[frameIdx];
+      const pOff = racerLaneOff(this.playerLane);
+      for (const k of pattern) {
+        const [r, c] = k.split(",").map(Number);
+        const ac = this.explodeCol + c;
+        if (ac >= 0 && ac < W) {
+          colorMap.set(`${r + pOff},${ac}`, EXPLODE_COLOR);
+        }
+      }
+      return this.render(colorMap);
+    }
+
     const diff = this.difficulty();
     const pc = RACER_PLAYER_COL;
     const pw = RACER_CAR_WIDTHS["standard"];
@@ -684,15 +743,17 @@ class RacerAnimation {
       }
     }
 
-    // ── NPC AI (per-type behaviour) ──
+    // ── NPC AI (per-type behaviour, with lane-switch safety) ──
     for (const npc of this.npcs) {
+      let targetLane: number | null = null;
+
       if (npc.npcType === "blue") {
         // Dodge: player approaching in same lane → switch lane
         const colI = Math.round(npc.col);
         if (npc.lane === this.playerLane) {
           const dist = colI - (pc + pw);
           if (dist >= 0 && dist < 6) {
-            npc.lane = 1 - npc.lane;
+            targetLane = 1 - npc.lane;
           }
         }
       } else if (npc.npcType === "yellow") {
@@ -701,23 +762,78 @@ class RacerAnimation {
         if (npc.weaveTimer >= npc.weaveInterval) {
           npc.weaveTimer = 0;
           npc.weaveInterval = 3 + Math.floor(Math.random() * 3);
-          npc.lane = 1 - npc.lane;
+          targetLane = 1 - npc.lane;
         }
       } else if (npc.npcType === "red") {
         // Chaser: actively track the player's lane
         if (npc.chaseCooldown > 0) npc.chaseCooldown--;
         if (npc.lane !== this.playerLane && npc.chaseCooldown === 0) {
-          npc.lane = this.playerLane;
-          npc.chaseCooldown = 5;
+          targetLane = this.playerLane;
         }
       }
+
+      // Execute lane switch only if safe
+      if (targetLane !== null && this.canSwitchLane(npc, targetLane)) {
+        npc.lane = targetLane;
+        if (npc.npcType === "red") npc.chaseCooldown = 5;
+      }
       // gray & truck: straight line, never change lane
+    }
+
+    // ── NPC-NPC proximity: push apart if too close ──
+    for (let i = 0; i < this.npcs.length; i++) {
+      const npc = this.npcs[i];
+      const colI = Math.round(npc.col);
+      const nw = this.npcWidth(npc);
+      for (let j = 0; j < this.npcs.length; j++) {
+        if (i >= j) continue;
+        const other = this.npcs[j];
+        if (other.lane !== npc.lane) continue;
+        const oc = Math.round(other.col);
+        const ow = this.npcWidth(other);
+        // Check overlap (no gap needed, just direct overlap)
+        if (!(colI + nw <= oc || oc + ow <= colI)) {
+          // Push the one that's further right to the other lane
+          if (npc.col > other.col) {
+            const otherLane = 1 - npc.lane;
+            if (this.canSwitchLane(npc, otherLane)) npc.lane = otherLane;
+          } else {
+            const otherLane = 1 - other.lane;
+            if (this.canSwitchLane(other, otherLane)) other.lane = otherLane;
+          }
+        }
+      }
     }
 
     // ── Remove off-screen ──
     this.npcs = this.npcs.filter(n => n.col > -(RACER_CAR_WIDTHS[n.tmplKey] + 2));
 
-    // ── Player AI ──
+    // ── Collision check FIRST (before player AI moves) ──
+    const colPOff = racerLaneOff(this.playerLane);
+    const colPlayerSet = new Set<string>();
+    for (const k of RACER_CAR_TEMPLATES["standard"]) {
+      const [r, c] = k.split(",").map(Number);
+      colPlayerSet.add(`${r + colPOff},${pc + c}`);
+    }
+
+    let colHit: RacerNPCData | null = null;
+    for (const npc of this.npcs) {
+      const nOff = racerLaneOff(npc.lane);
+      const colI = Math.round(npc.col);
+      for (const k of RACER_CAR_TEMPLATES[npc.tmplKey]) {
+        const [r, c] = k.split(",").map(Number);
+        if (colPlayerSet.has(`${r + nOff},${colI + c}`)) { colHit = npc; break; }
+      }
+      if (colHit) break;
+    }
+
+    if (colHit) {
+      this.npcs = this.npcs.filter(n => n !== colHit);
+      this.exploding = EXPLODE_FRAMES.length; // 4 frames
+      this.explodeCol = Math.round(colHit.col);
+    }
+
+    // ── Player AI (after collision check) ──
     const LOOKAHEAD = 14;
 
     const laneScore = (lane: number): number => {
@@ -754,24 +870,6 @@ class RacerAnimation {
       this.playerLane = otherLane;
     }
 
-    // ── Collision (player ↔ NPC only) ──
-    const pOff = racerLaneOff(this.playerLane);
-    const playerSet = new Set<string>();
-    for (const k of RACER_CAR_TEMPLATES["standard"]) {
-      const [r, c] = k.split(",").map(Number);
-      playerSet.add(`${r + pOff},${pc + c}`);
-    }
-
-    this.npcs = this.npcs.filter(npc => {
-      const nOff = racerLaneOff(npc.lane);
-      const colI = Math.round(npc.col);
-      for (const k of RACER_CAR_TEMPLATES[npc.tmplKey]) {
-        const [r, c] = k.split(",").map(Number);
-        if (playerSet.has(`${r + nOff},${colI + c}`)) return false;
-      }
-      return true;
-    });
-
     // ── Render ──
     const colorMap = new Map<string, string>();
 
@@ -794,7 +892,10 @@ class RacerAnimation {
       }
     }
 
-    // Braille render with colour (two lines)
+    return this.render(colorMap);
+  }
+
+  private render(colorMap: Map<string, string>): string {
     const lines: string[] = [];
     for (let half = 0; half < 2; half++) {
       const parts: string[] = [];

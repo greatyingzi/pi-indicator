@@ -613,14 +613,25 @@ class RacerAnimation:
     """Road Fighter–style 2-lane racer on 16×8 canvas (two braille lines).
     5 NPC types: gray (slow), blue (dodge), yellow (weaver),
                  red (chaser), truck (obstacle).
-    NPC–NPC collisions are ignored; only player–NPC matters.
+    NPCs keep distance from each other. Collision = explosion + respawn.
     """
+
+    # Explosion frames: expanding then fading cross pattern
+    EXPLODE_FRAMES = [
+        frozenset({(0,0),(0,1),(0,2),(1,0),(1,1),(1,2),(2,0),(2,1),(2,2)}),
+        frozenset({(0,0),(0,2),(1,1),(2,0),(2,2)}),
+        frozenset({(0,0),(0,2),(1,1),(2,0),(2,2)}),
+        frozenset({(1,1)}),
+    ]
+    EXPLODE_COLOR = "\x1b[38;5;202m"  # orange-red
 
     def __init__(self):
         self.player_lane = 0
         self.npcs: list[RacerNPC] = []
         self.spawn_timer = 0
         self.ticks = 0
+        self.exploding = 0  # frames remaining for explosion
+        self.explode_col = 0  # explosion column
 
     # ── helpers ──
 
@@ -643,19 +654,69 @@ class RacerAnimation:
                 return name
         return 'gray'
 
+    def _npc_width(self, npc):
+        return RACER_CAR_WIDTHS[npc.tmpl_key]
+
+    def _can_switch_lane(self, npc, target_lane):
+        """Check if NPC can switch to target_lane without overlapping others."""
+        col_i = int(round(npc.col))
+        nw = self._npc_width(npc)
+        for other in self.npcs:
+            if other is npc:
+                continue
+            if other.lane != target_lane:
+                continue
+            oc = int(round(other.col))
+            ow = self._npc_width(other)
+            # overlap check: need at least 2 cols gap
+            if not (col_i + nw + 2 <= oc or col_i + oc + ow + 2 <= col_i):
+                # actually: npc occupies [col_i, col_i+nw), other occupies [oc, oc+ow)
+                # no overlap if npc right edge + gap <= other left, or other right edge + gap <= npc left
+                if not (col_i + nw + 2 <= oc or oc + ow + 2 <= col_i):
+                    return False
+        return True
+
     def _spawn_npc(self):
         lane = random.randint(0, 1)
-        # keep at least 8 cols gap in the same lane
+        # keep gap in the same lane
         for npc in self.npcs:
             if npc.lane == lane and npc.col >= W - 8:
                 return
         npc_type = self._pick_npc_type()
+        # Also check the other lane to avoid cross-lane spawn on top
+        new_w = RACER_CAR_WIDTHS[RACER_NPC_DEFS[npc_type]['tmpl']]
+        for npc in self.npcs:
+            if npc.lane != lane:
+                continue
+            nw = self._npc_width(npc)
+            # Ensure new NPC at col W+1 doesn't overlap
+            if not (W + 1 + new_w + 2 <= int(round(npc.col)) or int(round(npc.col)) + nw + 2 <= W + 1):
+                return
         self.npcs.append(RacerNPC(lane, W + 1, npc_type))
 
     # ── tick ──
 
     def tick(self):
         self.ticks += 1
+
+        # ── Explosion phase ──
+        if self.exploding > 0:
+            self.exploding -= 1
+            # Render explosion
+            color_map = {}
+            frame_idx = len(self.EXPLODE_FRAMES) - 1 - self.exploding
+            if frame_idx < 0:
+                frame_idx = 0
+            if frame_idx >= len(self.EXPLODE_FRAMES):
+                frame_idx = len(self.EXPLODE_FRAMES) - 1
+            pattern = self.EXPLODE_FRAMES[frame_idx]
+            p_off = _racer_lane_off(self.player_lane)
+            for r, c in pattern:
+                ar, ac = r + p_off, self.explode_col + c
+                if 0 <= ac < W:
+                    color_map[(ar, ac)] = self.EXPLODE_COLOR
+            return self._render(color_map)
+
         diff = self._difficulty()
         pc = RACER_PLAYER_COL
         pw = RACER_CAR_WIDTHS['standard']
@@ -674,15 +735,17 @@ class RacerAnimation:
                 npc.col -= 1
                 npc.accumulator -= 1.0
 
-        # ── NPC AI (per-type behaviour) ──
+        # ── NPC AI (per-type behaviour, with lane-switch safety) ──
         for npc in self.npcs:
+            target_lane = None  # desired lane change
+
             if npc.npc_type == 'blue':
                 # Dodge: player approaching in same lane → switch lane
                 col_i = int(round(npc.col))
                 if npc.lane == self.player_lane:
                     dist = col_i - (pc + pw)
                     if 0 <= dist < 6:
-                        npc.lane = 1 - npc.lane
+                        target_lane = 1 - npc.lane
 
             elif npc.npc_type == 'yellow':
                 # Weaver: periodically auto-switch lanes (S-curve)
@@ -690,23 +753,69 @@ class RacerAnimation:
                 if npc.weave_timer >= npc.weave_interval:
                     npc.weave_timer = 0
                     npc.weave_interval = random.randint(3, 5)
-                    npc.lane = 1 - npc.lane
+                    target_lane = 1 - npc.lane
 
             elif npc.npc_type == 'red':
                 # Chaser: actively track the player's lane
                 if npc.chase_cooldown > 0:
                     npc.chase_cooldown -= 1
                 if npc.lane != self.player_lane and npc.chase_cooldown == 0:
-                    npc.lane = self.player_lane
+                    target_lane = self.player_lane
+
+            # Execute lane switch only if safe
+            if target_lane is not None and self._can_switch_lane(npc, target_lane):
+                npc.lane = target_lane
+                if npc.npc_type == 'red':
                     npc.chase_cooldown = 5
 
             # gray & truck: straight line, never change lane
+
+        # ── NPC-NPC proximity: push apart if too close ──
+        for i, npc in enumerate(self.npcs):
+            col_i = int(round(npc.col))
+            nw = self._npc_width(npc)
+            for j, other in enumerate(self.npcs):
+                if i >= j or other.lane != npc.lane:
+                    continue
+                oc = int(round(other.col))
+                ow = self._npc_width(other)
+                # Check overlap (no gap needed, just direct overlap)
+                if not (col_i + nw <= oc or oc + ow <= col_i):
+                    # Push the one that's further right to the other lane
+                    if npc.col > other.col:
+                        other_lane = 1 - npc.lane
+                        if self._can_switch_lane(npc, other_lane):
+                            npc.lane = other_lane
+                    else:
+                        other_lane = 1 - other.lane
+                        if self._can_switch_lane(other, other_lane):
+                            other.lane = other_lane
 
         # ── Remove off-screen ──
         self.npcs = [n for n in self.npcs
                      if n.col > -(RACER_CAR_WIDTHS[n.tmpl_key] + 2)]
 
-        # ── Player AI ──
+        # ── Collision check FIRST (before player AI moves) ──
+        p_off = _racer_lane_off(self.player_lane)
+        player_set = frozenset((r + p_off, pc + c)
+                               for r, c in RACER_CAR_TEMPLATES['standard'])
+
+        hit = None
+        for npc in self.npcs:
+            n_off = _racer_lane_off(npc.lane)
+            col_i = int(round(npc.col))
+            npc_set = frozenset((r + n_off, col_i + c)
+                                for r, c in RACER_CAR_TEMPLATES[npc.tmpl_key])
+            if player_set & npc_set:
+                hit = npc
+                break
+
+        if hit:
+            self.npcs.remove(hit)
+            self.exploding = len(self.EXPLODE_FRAMES)  # 4 frames
+            self.explode_col = int(round(hit.col))
+
+        # ── Player AI (after collision check) ──
         LOOKAHEAD = 14
 
         def lane_score(lane):
@@ -720,13 +829,10 @@ class RacerAnimation:
                 gap = col_i - (pc + pw)
                 if 0 <= gap < min_dist:
                     min_dist = gap
-                # red cars actively chase → highest threat
                 if npc.npc_type == 'red' and col_i > pc - 2:
                     threat += 4
-                # yellow cars weave unpredictably
                 if npc.npc_type == 'yellow' and col_i > pc:
                     threat += 2
-                # trucks are wide obstacles
                 if npc.npc_type == 'truck' and col_i > pc:
                     threat += 1
             return min_dist - threat
@@ -748,23 +854,6 @@ class RacerAnimation:
         if lane_safe(other_lane) and other_score > cur_score:
             self.player_lane = other_lane
 
-        # ── Collision (player ↔ NPC only) ──
-        p_off = _racer_lane_off(self.player_lane)
-        player_set = frozenset((r + p_off, pc + c)
-                               for r, c in RACER_CAR_TEMPLATES['standard'])
-
-        hit = []
-        for npc in self.npcs:
-            n_off = _racer_lane_off(npc.lane)
-            col_i = int(round(npc.col))
-            npc_set = frozenset((r + n_off, col_i + c)
-                                for r, c in RACER_CAR_TEMPLATES[npc.tmpl_key])
-            if player_set & npc_set:
-                hit.append(npc)
-        for npc in hit:
-            if npc in self.npcs:
-                self.npcs.remove(npc)
-
         # ── Render ──
         color_map = {}
 
@@ -784,7 +873,9 @@ class RacerAnimation:
                 if 0 <= ac < W:
                     color_map[(r + n_off, ac)] = npc.color
 
-        # Braille render with colour (two lines)
+        return self._render(color_map)
+
+    def _render(self, color_map):
         lines = []
         for half in range(2):
             parts = []
