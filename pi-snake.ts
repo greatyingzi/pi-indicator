@@ -265,15 +265,15 @@ class PacManAnimation {
     const s = new Set<string>();
     // Col 0: rows 1,2 (always)
     s.add("1,0"); s.add("2,0");
-    // Col 1: rows 0,1,2,3 (always)
-    s.add("0,1"); s.add("1,1"); s.add("2,1"); s.add("3,1");
 
     if (this.mouthOpen) {
-      // Col 2: rows 0,1,3
-      s.add("0,2"); s.add("1,2"); s.add("3,2");
-      // Col 3: rows 0,3
+      // Col 1,2,3: rows 0,3 only (top and bottom jaw edges)
+      s.add("0,1"); s.add("3,1");
+      s.add("0,2"); s.add("3,2");
       s.add("0,3"); s.add("3,3");
     } else {
+      // Col 1: rows 0,1,2,3 (full body)
+      s.add("0,1"); s.add("1,1"); s.add("2,1"); s.add("3,1");
       // Col 2: row 3
       s.add("3,2");
       // Col 3: rows 1,2
