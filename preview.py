@@ -4,7 +4,7 @@ Terminal preview for pi-indicator animations.
 Renders braille-dot animations in the terminal.
 
 Usage:
-    python preview.py [snake|breakout|pacman|wave|equalizer|fireworks|heartbeat|starfield]
+    python preview.py [snake|breakout|pacman|wave|equalizer|heart|fireworks|cat|invaders]
     python preview.py --all       # show all simultaneously
     # No argument → cycle through all, 10s each
 """
@@ -407,7 +407,214 @@ class CatAnimation:
         return "\n".join(lines)
 
 
-# ─── 6. Invaders Animation (horizontal) ─────────────────────────────
+# ─── 6. Heart Animation (pulsing heart, 16x8 two-line) ─────────────
+
+class HeartAnimation:
+    """Pulsing heart with lub-dub rhythm."""
+
+    FRAMES = [
+        # small (rest)
+        frozenset({
+            (2, 4), (2, 5), (2, 9), (2, 10),
+            (3, 3), (3, 4), (3, 5), (3, 6), (3, 7), (3, 8), (3, 9), (3, 10), (3, 11),
+            (4, 4), (4, 5), (4, 6), (4, 7), (4, 8), (4, 9), (4, 10),
+            (5, 5), (5, 6), (5, 7), (5, 8), (5, 9),
+            (6, 6), (6, 7), (6, 8),
+            (7, 7),
+        }),
+        # big (beat)
+        frozenset({
+            (1, 3), (1, 4), (1, 5), (1, 9), (1, 10), (1, 11),
+            (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7),
+            (2, 8), (2, 9), (2, 10), (2, 11), (2, 12),
+            (3, 2), (3, 3), (3, 4), (3, 5), (3, 6), (3, 7),
+            (3, 8), (3, 9), (3, 10), (3, 11), (3, 12),
+            (4, 3), (4, 4), (4, 5), (4, 6), (4, 7), (4, 8), (4, 9), (4, 10), (4, 11),
+            (5, 4), (5, 5), (5, 6), (5, 7), (5, 8), (5, 9), (5, 10),
+            (6, 5), (6, 6), (6, 7), (6, 8), (6, 9),
+            (7, 6), (7, 7), (7, 8),
+        }),
+    ]
+    # lub-dub pattern: rest, beat, rest, beat(smaller), rest...
+    TIMING = [0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+
+    def __init__(self):
+        self.phase = 0
+
+    def tick(self):
+        self.phase += 1
+        frame_idx = self.TIMING[self.phase % len(self.TIMING)]
+        pixels = self.FRAMES[frame_idx]
+
+        RED = "\x1b[38;5;196m"
+        PINK = "\x1b[38;5;213m"
+
+        lines = []
+        for half in range(2):
+            parts = []
+            for cx in range(0, W, 2):
+                val = 0
+                for r in range(4):
+                    for c in range(2):
+                        gk = (r + half * 4, cx + c)
+                        if gk in pixels:
+                            val |= DOT_MAP[(r, c)]
+                ch = chr_braille(val)
+                if val == 0:
+                    parts.append(EMPTY_BRAILLE)
+                else:
+                    color = PINK if half == 0 else RED
+                    parts.append(f"{color}{ch}{RESET}")
+            lines.append("".join(parts))
+        return "\n".join(lines)
+
+
+# ─── 7. Wave Animation (flowing sine, 16x8 two-line) ───────────────
+
+class WaveAnimation:
+    """Multi-layered sine waves flowing across the display."""
+
+    def __init__(self):
+        self.phase = 0.0
+
+    def tick(self):
+        self.phase += 0.3
+
+        grid = set()
+        color_map = {}
+
+        BLUE = "\x1b[38;5;39m"
+        CYAN = "\x1b[38;5;51m"
+        SEA  = "\x1b[38;5;72m"
+
+        for c in range(W):
+            r1 = int(round(4 + 2.5 * math.sin(c * 2 * math.pi / W + self.phase)))
+            r2 = int(round(4 + 1.5 * math.sin(c * 2 * math.pi / W * 2 - self.phase * 0.7 + 1.0)))
+            r3 = int(round(5 + 1.0 * math.sin(c * 2 * math.pi / W * 0.5 + self.phase * 0.3)))
+
+            for r, color in [(r1, BLUE), (r2, CYAN), (r3, SEA)]:
+                if 0 <= r < 8:
+                    grid.add((r, c))
+                    color_map[(r, c)] = color
+
+        lines = []
+        for half in range(2):
+            parts = []
+            for cx in range(0, W, 2):
+                val = 0
+                color = None
+                for r in range(4):
+                    for c in range(2):
+                        gk = (r + half * 4, cx + c)
+                        if gk in grid:
+                            val |= DOT_MAP[(r, c)]
+                        if gk in color_map:
+                            color = color_map[gk]
+                ch = chr_braille(val)
+                if val == 0:
+                    parts.append(EMPTY_BRAILLE)
+                elif color:
+                    parts.append(f"{color}{ch}{RESET}")
+                else:
+                    parts.append(ch)
+            lines.append("".join(parts))
+        return "\n".join(lines)
+
+
+# ─── 8. Fireworks Animation (exploding particles, 16x8 two-line) ────
+
+class FireworksAnimation:
+    """Fireworks: rockets launch upward and burst into colored particles."""
+
+    COLORS = [
+        "\x1b[38;5;196m", "\x1b[38;5;226m", "\x1b[38;5;46m",
+        "\x1b[38;5;51m", "\x1b[38;5;213m", "\x1b[38;5;129m",
+    ]
+
+    def __init__(self):
+        self.particles = []   # [[r, c, vr, vc, life, color], ...]
+        self.rockets = []     # [[c, row], ...]
+        self.timer = 0
+
+    def _explode(self, c, r):
+        color = random.choice(self.COLORS)
+        for _ in range(14):
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(0.3, 1.2)
+            vr = speed * math.sin(angle)
+            vc = speed * math.cos(angle)
+            life = random.randint(6, 14)
+            self.particles.append([r, c, vr, vc, life, color])
+
+    def tick(self):
+        self.timer += 1
+
+        # Spawn rockets
+        if self.timer % 12 == 0:
+            c = random.randint(2, W - 3)
+            self.rockets.append([c, 7.0])
+
+        # Update rockets
+        new_rockets = []
+        for c, r in self.rockets:
+            r -= 0.8
+            if r <= random.randint(1, 3):
+                self._explode(c, r)
+            else:
+                new_rockets.append([c, r])
+        self.rockets = new_rockets
+
+        # Update particles
+        new_particles = []
+        for p in self.particles:
+            p[0] += p[2]
+            p[1] += p[3]
+            p[2] *= 0.92
+            p[3] *= 0.92
+            p[4] -= 1
+            if p[4] > 0 and 0 <= p[0] < 8 and 0 <= p[1] < W:
+                new_particles.append(p)
+        self.particles = new_particles
+
+        # Build grid
+        grid = set()
+        color_map = {}
+        for p in self.particles:
+            r, c = int(round(p[0])), int(round(p[1]))
+            if 0 <= r < 8 and 0 <= c < W:
+                grid.add((r, c))
+                color_map[(r, c)] = p[5]
+        for c, r in self.rockets:
+            ri = int(round(r))
+            if 0 <= ri < 8 and 0 <= c < W:
+                grid.add((ri, c))
+                color_map[(ri, c)] = "\x1b[38;5;226m"
+
+        lines = []
+        for half in range(2):
+            parts = []
+            for cx in range(0, W, 2):
+                val = 0
+                color = None
+                for r in range(4):
+                    for c in range(2):
+                        gk = (r + half * 4, cx + c)
+                        if gk in grid:
+                            val |= DOT_MAP[(r, c)]
+                        if gk in color_map:
+                            color = color_map[gk]
+                ch = chr_braille(val)
+                if val == 0:
+                    parts.append(EMPTY_BRAILLE)
+                elif color:
+                    parts.append(f"{color}{ch}{RESET}")
+                else:
+                    parts.append(ch)
+            lines.append("".join(parts))
+        return "\n".join(lines)
+
+
+# ─── 9. Invaders Animation (horizontal) ─────────────────────────────
 # Ship on LEFT (col 0-1), aliens invade from RIGHT
 # Ship moves up/down, bullets shoot RIGHT, aliens approach LEFT
 
@@ -523,6 +730,9 @@ ANIM_DEFS = [
     ("pacman",     "Pac-Man 👾",    PacManAnimation,     0.140),
     ("equalizer",  "Equalizer 📊",  EqualizerAnimation,  0.150),
     ("cat",        "Cat 🐱",        CatAnimation,        0.160),
+    ("heart",      "Heart ❤️",      HeartAnimation,      0.140),
+    ("wave",       "Wave 🌊",       WaveAnimation,       0.120),
+    ("fireworks",  "Fireworks 🎆",  FireworksAnimation,  0.100),
     ("invaders",   "Invaders 🛸",   InvadersAnimation,   0.120),
 ]
 
