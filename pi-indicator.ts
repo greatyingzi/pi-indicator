@@ -697,9 +697,129 @@ class CatAnimation {
   }
 }
 
+// ─── 7. Racer Animation (horizontal 4-lane overtaking) ────────────
+
+const RACER_GRAY = "\x1b[38;5;237m";
+const RACER_GREEN = "\x1b[38;5;82m";
+const RACER_CAR_COLORS = [
+  "\x1b[38;5;196m",   // red
+  "\x1b[38;5;214m",   // orange
+  "\x1b[38;5;69m",    // blue
+  "\x1b[38;5;201m",   // magenta
+  "\x1b[38;5;226m",   // yellow
+];
+
+class RacerAnimation {
+  private playerRow = 1;
+  private enemies: [number, number][] = [];  // [row, col]
+  private overtakes = 0;
+  private spawnTimer = 0;
+  private roadPhase = 0;
+
+  tick(): string {
+    this.roadPhase++;
+
+    // Spawn enemy cars at right edge
+    this.spawnTimer++;
+    const interval = Math.max(3, 7 - Math.min(Math.floor(this.overtakes / 4), 4));
+    if (this.spawnTimer >= interval) {
+      this.spawnTimer = 0;
+      const row = Math.floor(Math.random() * 4);
+      const blocked = this.enemies.some(e => e[0] === row && e[1] >= W - 3);
+      if (!blocked) this.enemies.push([row, W - 1]);
+    }
+
+    // Move enemies left (slow traffic being overtaken)
+    const survived: [number, number][] = [];
+    for (const e of this.enemies) {
+      e[1] -= 1;
+      if (e[1] < -2) this.overtakes++;
+      else survived.push(e);
+    }
+    this.enemies = survived;
+
+    // AI: dodge nearest threat
+    const threats = this.enemies
+      .filter(e => e[1] >= 1 && e[1] <= 5)
+      .sort((a, b) => a[1] - b[1]);
+    for (const e of threats) {
+      if (e[0] === this.playerRow) {
+        for (const dr of [1, -1]) {
+          const nr = this.playerRow + dr;
+          if (nr >= 0 && nr < 4) {
+            const blocked = this.enemies.some(en => en[0] === nr && en[1] >= -1 && en[1] <= 5);
+            if (!blocked) { this.playerRow = nr; break; }
+          }
+        }
+        break;
+      }
+    }
+
+    // Collision → crash reset
+    for (const e of this.enemies) {
+      if (e[0] === this.playerRow && e[1] >= -1 && e[1] <= 2) {
+        this.enemies = [];
+        this.overtakes = Math.max(0, this.overtakes - 5);
+        break;
+      }
+    }
+
+    // ── Render ──
+    const grid = new Set<string>();
+    const colorMap = new Map<string, string>();
+
+    // Scrolling road edge dashes
+    for (let c = 0; c < W; c++) {
+      if ((c + this.roadPhase) % 6 < 3) {
+        grid.add(`0,${c}`); colorMap.set(`0,${c}`, RACER_GRAY);
+        grid.add(`3,${c}`); colorMap.set(`3,${c}`, RACER_GRAY);
+      }
+    }
+
+    // Player car (3px wide, bright green)
+    for (const c of [1, 2, 3]) {
+      const k = `${this.playerRow},${c}`;
+      grid.add(k); colorMap.set(k, RACER_GREEN);
+    }
+
+    // Enemy cars (2px wide, various colors)
+    for (let i = 0; i < this.enemies.length; i++) {
+      const e = this.enemies[i];
+      const color = RACER_CAR_COLORS[i % RACER_CAR_COLORS.length];
+      for (const dc of [0, 1]) {
+        const c = e[1] + dc;
+        if (c >= 0 && c < W) {
+          const k = `${e[0]},${c}`;
+          grid.add(k); colorMap.set(k, color);
+        }
+      }
+    }
+
+    // Braille render
+    const parts: string[] = [];
+    for (let cx = 0; cx < W; cx += 2) {
+      let val = 0;
+      let color: string | undefined;
+      for (let r = 0; r < H; r++) {
+        for (let c = 0; c < 2; c++) {
+          const gk = `${r},${cx + c}`;
+          if (grid.has(gk)) val |= DOT_MAP[`${r},${c}`];
+          const clr = colorMap.get(gk);
+          if (clr) color = clr;
+        }
+      }
+      const ch = String.fromCharCode(BRAILLE_OFFSET + val);
+      if (val === 0) parts.push(EMPTY_BRAILLE);
+      else if (color) parts.push(`${color}${ch}${RESET}`);
+      else parts.push(ch);
+    }
+    return parts.join("");
+  }
+}
+
 // ─── Animation Engine ───────────────────────────────────────────────
 
-type AnimType = "snake" | "breakout" | "pacman" | "equalizer" | "invaders" | "heart" | "cat";
+type AnimType = "snake" | "breakout" | "pacman" | "equalizer" | "invaders" | "heart" | "cat" | "racer";
 
 const ANIM_LIST: { id: AnimType; label: string }[] = [
   { id: "snake", label: "Snake 🐍" },
@@ -709,6 +829,7 @@ const ANIM_LIST: { id: AnimType; label: string }[] = [
   { id: "invaders", label: "Invaders 🛸" },
   { id: "heart", label: "Heart ❤️" },
   { id: "cat", label: "Cat 🐱" },
+  { id: "racer", label: "Racer 🏎️" },
 ];
 
 const ANIM_INTERVALS: Record<AnimType, number> = {
@@ -719,6 +840,7 @@ const ANIM_INTERVALS: Record<AnimType, number> = {
   invaders: 120,
   heart: 200,
   cat: 160,
+  racer: 120,
 };
 
 interface AnimationState {
@@ -738,6 +860,7 @@ function createAnimation(type: AnimType): { tick: () => string } {
     case "invaders": return new InvadersAnimation();
     case "heart": return new HeartAnimation();
     case "cat": return new CatAnimation();
+    case "racer": return new RacerAnimation();
   }
 }
 

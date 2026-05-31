@@ -707,6 +707,119 @@ class InvadersAnimation:
         return "".join(parts)
 
 
+# ─── 10. Racer Animation (horizontal 4-lane overtaking) ─────────────
+
+class RacerAnimation:
+    """Side-scrolling racer: overtake traffic on 4-lane road."""
+
+    def __init__(self):
+        self.player_row = 1
+        self.enemies = []      # [[row, col], ...]
+        self.overtakes = 0
+        self.spawn_timer = 0
+        self.road_phase = 0
+
+    def tick(self):
+        self.road_phase += 1
+
+        # Spawn enemy cars at right edge
+        self.spawn_timer += 1
+        interval = max(3, 7 - min(self.overtakes // 4, 4))
+        if self.spawn_timer >= interval:
+            self.spawn_timer = 0
+            row = random.randint(0, 3)
+            if not any(e[0] == row and e[1] >= W - 3 for e in self.enemies):
+                self.enemies.append([row, W - 1])
+
+        # Move enemies left (slow traffic being overtaken)
+        survived = []
+        for e in self.enemies:
+            e[1] -= 1
+            if e[1] < -2:
+                self.overtakes += 1
+            else:
+                survived.append(e)
+        self.enemies = survived
+
+        # AI: dodge nearest threat
+        threats = sorted([e for e in self.enemies if 1 <= e[1] <= 5],
+                         key=lambda x: x[1])
+        for e in threats:
+            if e[0] == self.player_row:
+                for dr in [1, -1]:
+                    nr = self.player_row + dr
+                    if 0 <= nr < 4:
+                        blocked = any(en[0] == nr and -1 <= en[1] <= 5
+                                      for en in self.enemies)
+                        if not blocked:
+                            self.player_row = nr
+                            break
+                break
+
+        # Collision → crash reset
+        for e in self.enemies:
+            if e[0] == self.player_row and -1 <= e[1] <= 2:
+                self.enemies.clear()
+                self.overtakes = max(0, self.overtakes - 5)
+                break
+
+        # ── Render ──
+        grid = set()
+        color_map = {}
+
+        # Scrolling road dashes (edge lines + center divider)
+        GRAY = "\x1b[38;5;237m"
+        for c in range(W):
+            phase = (c + self.road_phase) % 6
+            # Top & bottom edge dashes
+            if phase < 3:
+                grid.add((0, c)); color_map[(0, c)] = GRAY
+                grid.add((3, c)); color_map[(3, c)] = GRAY
+
+        # Player car (3px wide, bright green)
+        GREEN = "\x1b[38;5;82m"
+        for c in [1, 2, 3]:
+            grid.add((self.player_row, c))
+            color_map[(self.player_row, c)] = GREEN
+
+        # Enemy cars (2px wide, various colors)
+        CAR_COLORS = [
+            "\x1b[38;5;196m",   # red
+            "\x1b[38;5;214m",   # orange
+            "\x1b[38;5;69m",    # blue
+            "\x1b[38;5;201m",   # magenta
+            "\x1b[38;5;226m",   # yellow
+        ]
+        for i, e in enumerate(self.enemies):
+            color = CAR_COLORS[i % len(CAR_COLORS)]
+            for dc in range(2):
+                c = e[1] + dc
+                if 0 <= c < W:
+                    grid.add((e[0], c))
+                    color_map[(e[0], c)] = color
+
+        # Braille render
+        parts = []
+        for cx in range(0, W, 2):
+            val = 0
+            color = None
+            for r in range(H):
+                for c in range(2):
+                    gk = (r, cx + c)
+                    if gk in grid:
+                        val |= DOT_MAP[(r, c)]
+                    if gk in color_map:
+                        color = color_map[gk]
+            ch = chr_braille(val)
+            if val == 0:
+                parts.append(EMPTY_BRAILLE)
+            elif color:
+                parts.append(f"{color}{ch}{RESET}")
+            else:
+                parts.append(ch)
+        return "".join(parts)
+
+
 # ─── Terminal runner ─────────────────────────────────────────────────
 
 ANIM_DEFS = [
@@ -716,9 +829,8 @@ ANIM_DEFS = [
     ("equalizer",  "Equalizer 📊",  EqualizerAnimation,  0.150),
     ("cat",        "Cat 🐱",        CatAnimation,        0.160),
     ("heart",      "Heart ❤️",      HeartAnimation,      0.200),
-    ("wave",       "Wave 🌊",       WaveAnimation,       0.120),
-    ("fireworks",  "Fireworks 🎆",  FireworksAnimation,  0.100),
     ("invaders",   "Invaders 🛸",   InvadersAnimation,   0.120),
+    ("racer",      "Racer 🏎️",     RacerAnimation,      0.120),
 ]
 
 
