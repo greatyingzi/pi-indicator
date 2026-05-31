@@ -759,7 +759,8 @@ export default function (pi: ExtensionAPI) {
     }
   };
 
-  const cmdDesc = "Switch animation: /indicator <snake|breakout|pacman|equalizer|invaders> or /anim to pick";
-  pi.registerCommand("indicator", { description: cmdDesc, handler: cmdHandler });
-  pi.registerCommand("anim", { description: cmdDesc, handler: cmdHandler });
+  pi.registerCommand("indicator", {
+    description: "Switch animation: /indicator [snake|breakout|pacman|equalizer|invaders|cat]",
+    handler: cmdHandler,
+  });
 }
