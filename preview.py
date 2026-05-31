@@ -559,7 +559,7 @@ class InvadersAnimation:
 # ─── 10. Racer Animation (Road Fighter, 2-lane, colored, 16x8) ──
 
 RACER_PLAYER_COL = 2
-RACER_MAX_NPCS = 6
+RACER_MAX_NPCS = 3
 RACER_PLAYER_COLOR = "\x1b[38;5;82m"
 
 # NPC type definitions: speed, template key, ANSI 256 color
@@ -645,9 +645,9 @@ class RacerAnimation:
 
     def _spawn_npc(self):
         lane = random.randint(0, 1)
-        # keep at least 6 cols gap in the same lane
+        # keep at least 8 cols gap in the same lane
         for npc in self.npcs:
-            if npc.lane == lane and npc.col >= W - 6:
+            if npc.lane == lane and npc.col >= W - 8:
                 return
         npc_type = self._pick_npc_type()
         self.npcs.append(RacerNPC(lane, W + 1, npc_type))
@@ -662,12 +662,10 @@ class RacerAnimation:
 
         # ── Spawn ──
         self.spawn_timer += 1
-        base_interval = max(4, 12 - int(diff * 6))
+        base_interval = max(8, 16 - int(diff * 6))
         if self.spawn_timer >= base_interval and len(self.npcs) < RACER_MAX_NPCS:
             self.spawn_timer = 0
             self._spawn_npc()
-            if diff > 0.5 and random.random() < 0.3 and len(self.npcs) < RACER_MAX_NPCS:
-                self._spawn_npc()
 
         # ── Move NPCs (sub-pixel accumulator) ──
         for npc in self.npcs:

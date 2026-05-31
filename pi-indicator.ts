@@ -576,7 +576,7 @@ class CatAnimation {
 // ─── 7. Racer Animation (Road Fighter, 2-lane, colored, 16x8) ──────
 
 const RACER_PLAYER_COL = 2;
-const RACER_MAX_NPCS = 6;
+const RACER_MAX_NPCS = 3;
 const RACER_PLAYER_COLOR = "\x1b[38;5;82m";
 
 // NPC type definitions: speed, template key, ANSI 256 color
@@ -646,7 +646,7 @@ class RacerAnimation {
 
   private spawnNPC(): void {
     const lane = Math.floor(Math.random() * 2);
-    if (this.npcs.some(n => n.lane === lane && n.col >= W - 6)) return;
+    if (this.npcs.some(n => n.lane === lane && n.col >= W - 8)) return;
     const npcType = this.pickNpcType();
     const def = RACER_NPC_DEFS[npcType];
     this.npcs.push({
@@ -669,13 +669,10 @@ class RacerAnimation {
 
     // ── Spawn ──
     this.spawnTimer++;
-    const baseInterval = Math.max(4, 12 - Math.floor(diff * 6));
+    const baseInterval = Math.max(8, 16 - Math.floor(diff * 6));
     if (this.spawnTimer >= baseInterval && this.npcs.length < RACER_MAX_NPCS) {
       this.spawnTimer = 0;
       this.spawnNPC();
-      if (diff > 0.5 && Math.random() < 0.3 && this.npcs.length < RACER_MAX_NPCS) {
-        this.spawnNPC();
-      }
     }
 
     // ── Move NPCs (sub-pixel accumulator) ──
