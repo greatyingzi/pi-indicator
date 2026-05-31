@@ -573,131 +573,298 @@ class CatAnimation {
   }
 }
 
-// ─── 7. Racer Animation (mini 2×4 top-down car, 16x8 two-lane, no color) ─
+// ─── 7. Racer Animation (colored, smart NPC, 2-lane, 16x8) ──────────
 
-// Mini car: 2 rows × 4 cols, facing RIGHT
-//   .##.   row0: hood
-//   ####   row1: body full width
-const CAR_RIGHT: ReadonlySet<string> = new Set([
-  "0,1","0,2",
-  "1,0","1,1","1,2","1,3",
-]);
+// Player car: fixed green
+const RACER_PLAYER_COLOR = "\x1b[38;5;82m";
+// NPC color palette: red, orange, blue, magenta, yellow, cyan
+const RACER_NPC_PALETTE = [196, 214, 69, 201, 226, 51];
 
-// Mirrored for left-facing enemies (col → 3-col)
-const CAR_LEFT: ReadonlySet<string> = new Set(
-  [...CAR_RIGHT].map(k => { const [r, c] = k.split(",").map(Number); return `${r},${3 - c}`; })
-);
+// Car templates: 3 types, facing RIGHT (row, col)
+// Template A (2x4 basic): .##. / ####
+// Template B (2x3 compact): ### / ###
+// Template C (2x5 long): .###. / #####
+const RACER_TEMPLATES: ReadonlyArray<ReadonlySet<string>> = [
+  new Set(["0,1","0,2","1,0","1,1","1,2","1,3"]),
+  new Set(["0,0","0,1","0,2","1,0","1,1","1,2"]),
+  new Set(["0,1","0,2","0,3","1,0","1,1","1,2","1,3","1,4"]),
+];
+const RACER_TEMPLATE_WIDTHS = [4, 3, 5];
 
-const CAR_W = 4;
-const PLAYER_COL = 2;
+const RACER_PLAYER_COL = 2;
+const RACER_MAX_NPCS = 6;
 
-function laneOff(lane: number): number { return lane === 0 ? 0 : 4; }
+function racerLaneOff(lane: number): number { return lane === 0 ? 0 : 4; }
 
-function carPixels(lane: number, col: number, template: ReadonlySet<string>, rowPad = 1): Set<string> {
-  const off = laneOff(lane);
+function racerTemplatePixels(tmplIdx: number): Set<string> {
+  const w = RACER_TEMPLATE_WIDTHS[tmplIdx];
   const s = new Set<string>();
-  for (const k of template) {
+  for (const k of RACER_TEMPLATES[tmplIdx]) {
     const [r, c] = k.split(",").map(Number);
-    s.add(`${r + off + rowPad},${col + c}`);
+    s.add(`${r},${w - 1 - c}`);
   }
   return s;
 }
 
+interface RacerNPCData {
+  lane: number;
+  col: number;
+  speed: number;
+  color: string;
+  aggressive: boolean;
+  tmplIdx: number;
+  accumulator: number;
+  pixelsTmpl: Set<string>;
+}
+
+function createNPC(lane: number, col: number, speed: number, colorCode: number,
+                   aggressive: boolean, tmplIdx: number): RacerNPCData {
+  return {
+    lane, col, speed,
+    color: `\x1b[38;5;${colorCode}m`,
+    aggressive, tmplIdx,
+    accumulator: 0,
+    pixelsTmpl: racerTemplatePixels(tmplIdx),
+  };
+}
+
 class RacerAnimation {
   private playerLane = 0;
-  private enemies: [number, number][] = []; // [lane, col]
+  private npcs: RacerNPCData[] = [];
   private overtakes = 0;
   private spawnTimer = 0;
-  private roadPhase = 0;
+  private ticks = 0;
+  private playerTmpl = 0;
+
+  private laneOff(lane: number): number { return lane === 0 ? 0 : 4; }
+
+  private playerPixels(): Set<string> {
+    const off = this.laneOff(this.playerLane);
+    const s = new Set<string>();
+    for (const k of RACER_TEMPLATES[this.playerTmpl]) {
+      const [r, c] = k.split(",").map(Number);
+      s.add(`${r + off + 1},${RACER_PLAYER_COL + c}`);
+    }
+    return s;
+  }
+
+  private npcPixels(npc: RacerNPCData): Set<string> {
+    const off = this.laneOff(npc.lane);
+    const colI = Math.round(npc.col);
+    const s = new Set<string>();
+    for (const k of npc.pixelsTmpl) {
+      const [r, c] = k.split(",").map(Number);
+      s.add(`${r + off + 1},${colI + c}`);
+    }
+    return s;
+  }
+
+  private npcWidth(npc: RacerNPCData): number {
+    return RACER_TEMPLATE_WIDTHS[npc.tmplIdx];
+  }
+
+  private playerWidth(): number {
+    return RACER_TEMPLATE_WIDTHS[this.playerTmpl];
+  }
+
+  private difficultyFactor(): number {
+    return Math.min(this.ticks / 500, 1.0);
+  }
+
+  private spawnNPC(): void {
+    const lane = Math.floor(Math.random() * 2);
+    if (this.npcs.some(n => n.lane === lane && n.col >= W - 2)) return;
+    const diff = this.difficultyFactor();
+    const speed = 0.5 + Math.random() * (0.5 + diff * 1.0);
+    const colorCode = RACER_NPC_PALETTE[Math.floor(Math.random() * RACER_NPC_PALETTE.length)];
+    const aggressive = Math.random() < (0.3 + diff * 0.3);
+    const tmplIdx = Math.floor(Math.random() * 3);
+    this.npcs.push(createNPC(lane, W + 1, speed, colorCode, aggressive, tmplIdx));
+  }
 
   tick(): string {
-    this.roadPhase++;
+    this.ticks++;
+    const diff = this.difficultyFactor();
+    const pw = this.playerWidth();
+    const pc = RACER_PLAYER_COL;
 
-    // Spawn enemies
+    // ── Spawn NPCs ──
     this.spawnTimer++;
-    const interval = Math.max(4, 10 - Math.min(Math.floor(this.overtakes / 5), 6));
-    if (this.spawnTimer >= interval) {
+    const baseInterval = Math.max(4, 12 - Math.floor(diff * 6));
+    if (this.spawnTimer >= baseInterval && this.npcs.length < RACER_MAX_NPCS) {
       this.spawnTimer = 0;
-      const lane = Math.floor(Math.random() * 2);
-      if (!this.enemies.some(e => e[0] === lane && e[1] >= W - 2)) {
-        this.enemies.push([lane, W + 1]);
+      this.spawnNPC();
+      if (diff > 0.5 && Math.random() < 0.3 && this.npcs.length < RACER_MAX_NPCS) {
+        this.spawnNPC();
       }
     }
 
-    // Move enemies left
-    const survived: [number, number][] = [];
-    for (const e of this.enemies) {
-      e[1] -= 1;
-      if (e[1] < -(CAR_W + 2)) this.overtakes++;
-      else survived.push(e);
+    // ── Move NPCs (sub-frame accumulator) ──
+    for (const npc of this.npcs) {
+      npc.accumulator += npc.speed;
+      while (npc.accumulator >= 1.0) {
+        npc.col -= 1;
+        npc.accumulator -= 1.0;
+      }
     }
-    this.enemies = survived;
 
-    // ── Smart AI ──
-    const pc = PLAYER_COL;
-    const LOOKAHEAD = 12;
+    // ── NPC Intelligence ──
+    for (const npc of this.npcs) {
+      const nw = this.npcWidth(npc);
+      const colI = Math.round(npc.col);
+      const otherLane = 1 - npc.lane;
 
-    const laneClearance = (lane: number): number => {
+      // Check for collision ahead (same lane)
+      let blockedAhead = false;
+      for (const other of this.npcs) {
+        if (other === npc) continue;
+        if (other.lane !== npc.lane) continue;
+        const ow = this.npcWidth(other);
+        const oc = Math.round(other.col);
+        if (oc < colI && colI - (oc + ow) < 3) {
+          blockedAhead = true;
+          break;
+        }
+      }
+
+      // Aggressive: try to block player
+      if (npc.aggressive && !blockedAhead) {
+        if (this.playerLane === npc.lane && colI > pc + pw) {
+          // Player behind in same lane, stay
+        } else if (this.playerLane !== npc.lane && colI > pc) {
+          // Player in other lane behind — switch to block
+          let safe = true;
+          for (const other of this.npcs) {
+            if (other === npc) continue;
+            if (other.lane !== otherLane) continue;
+            const oc = Math.round(other.col);
+            const ow2 = this.npcWidth(other);
+            if (!(colI + nw <= oc || colI >= oc + ow2)) { safe = false; break; }
+          }
+          if (safe) npc.lane = otherLane;
+        }
+      }
+
+      // Avoidance: if blocked ahead, try to switch lanes
+      if (blockedAhead) {
+        let safe = true;
+        for (const other of this.npcs) {
+          if (other === npc) continue;
+          if (other.lane !== otherLane) continue;
+          const oc = Math.round(other.col);
+          const ow2 = this.npcWidth(other);
+          if (!(colI + nw <= oc || colI >= oc + ow2)) { safe = false; break; }
+        }
+        if (safe && !(colI + nw <= pc || colI >= pc + pw)) safe = false;
+        if (safe) npc.lane = otherLane;
+      }
+    }
+
+    // ── Remove off-screen NPCs ──
+    const survived: RacerNPCData[] = [];
+    for (const npc of this.npcs) {
+      const nw = this.npcWidth(npc);
+      if (npc.col < -(nw + 2)) this.overtakes++;
+      else survived.push(npc);
+    }
+    this.npcs = survived;
+
+    // ── Player AI ──
+    const LOOKAHEAD = 14;
+
+    const laneClearance = (lane: number): [number, boolean] => {
       let best = LOOKAHEAD + 1;
-      for (const e of this.enemies) {
-        if (e[0] !== lane) continue;
-        const frontGap = e[1] - (pc + CAR_W);
-        if (frontGap >= 0) best = Math.min(best, frontGap);
+      let hasAggressive = false;
+      for (const npc of this.npcs) {
+        if (npc.lane !== lane) continue;
+        const nw2 = this.npcWidth(npc);
+        const colI2 = Math.round(npc.col);
+        const frontGap = colI2 - (pc + pw);
+        if (frontGap >= 0 && frontGap < best) best = frontGap;
+        if (npc.aggressive && colI2 > pc) hasAggressive = true;
       }
-      return best;
+      return [best, hasAggressive];
     };
 
-    const curClear = laneClearance(this.playerLane);
+    const [curClear, curAggro] = laneClearance(this.playerLane);
     const other = 1 - this.playerLane;
-    const otherClear = laneClearance(other);
+    const [otherClear, otherAggro] = laneClearance(other);
 
-    // Don't switch into an overlapping enemy
-    const blocked = this.enemies.some(oe =>
-      oe[0] === other && oe[1] + CAR_W > pc && oe[1] < pc + CAR_W + 2);
-    if (!blocked && otherClear > curClear + 1) {
-      this.playerLane = other;
+    const laneSafe = (lane: number): boolean => {
+      for (const npc of this.npcs) {
+        if (npc.lane !== lane) continue;
+        const nw2 = this.npcWidth(npc);
+        const colI2 = Math.round(npc.col);
+        if (!(colI2 + nw2 <= pc || colI2 >= pc + pw)) return false;
+      }
+      return true;
+    };
+
+    const otherSafe = laneSafe(other);
+    if (otherSafe) {
+      const curScore = curClear - (curAggro ? 3 : 0);
+      const otherScore = otherClear - (otherAggro ? 3 : 0);
+      if (otherScore > curScore + 1) this.playerLane = other;
     }
 
-    // Collision
-    const pSet = carPixels(this.playerLane, pc, CAR_RIGHT);
-    for (const e of this.enemies) {
-      const eSet = carPixels(e[0], e[1], CAR_LEFT);
-      for (const k of eSet) { if (pSet.has(k)) { this.enemies = []; this.overtakes = Math.max(0, this.overtakes - 3); break; } }
-      if (this.enemies.length === 0) break;
+    // ── Collision Detection ──
+    const pSet = this.playerPixels();
+    for (const npc of this.npcs) {
+      const nSet = this.npcPixels(npc);
+      let hit = false;
+      for (const k of nSet) { if (pSet.has(k)) { hit = true; break; } }
+      if (hit) {
+        this.npcs = [];
+        this.overtakes = Math.max(0, this.overtakes - 3);
+        break;
+      }
     }
 
     // ── Render ──
-    const grid = new Set<string>();
+    const colorMap = new Map<string, string>();
 
-    // Player car
-    for (const k of CAR_RIGHT) {
+    // Player car pixels
+    const pOff = this.laneOff(this.playerLane);
+    for (const k of RACER_TEMPLATES[this.playerTmpl]) {
       const [r, c] = k.split(",").map(Number);
-      grid.add(`${r + laneOff(this.playerLane) + 1},${pc + c}`);
+      const ar = r + pOff + 1, ac = pc + c;
+      if (ac >= 0 && ac < W) colorMap.set(`${ar},${ac}`, RACER_PLAYER_COLOR);
     }
 
-    // Enemy cars
-    for (const e of this.enemies) {
-      const off = laneOff(e[0]);
-      for (const k of CAR_LEFT) {
+    // NPC car pixels
+    for (const npc of this.npcs) {
+      const off = this.laneOff(npc.lane);
+      const colI = Math.round(npc.col);
+      for (const k of npc.pixelsTmpl) {
         const [r, c] = k.split(",").map(Number);
-        const ac = e[1] + c;
-        if (ac >= 0 && ac < W) grid.add(`${r + off + 1},${ac}`);
+        const ar = r + off + 1, ac = colI + c;
+        if (ac >= 0 && ac < W) colorMap.set(`${ar},${ac}`, npc.color);
       }
     }
 
-    // Braille render (two lines)
+    // Braille render with color (two lines)
     const lines: string[] = [];
     for (let half = 0; half < 2; half++) {
       const parts: string[] = [];
       for (let cx = 0; cx < W; cx += 2) {
         let val = 0;
+        let bestColor: string | null = null;
         for (let r = 0; r < 4; r++) {
           for (let c = 0; c < 2; c++) {
-            if (grid.has(`${r + half * 4},${cx + c}`))
+            const key = `${r + half * 4},${cx + c}`;
+            if (colorMap.has(key)) {
               val |= DOT_MAP[`${r},${c}`];
+              if (bestColor === null) bestColor = colorMap.get(key)!;
+            }
           }
         }
-        parts.push(String.fromCharCode(BRAILLE_OFFSET + val));
+        if (val === 0) {
+          parts.push(" ");
+        } else {
+          const ch = String.fromCharCode(BRAILLE_OFFSET + val);
+          if (bestColor) parts.push(`${bestColor}${ch}${RESET}`);
+          else parts.push(ch);
+        }
       }
       lines.push(parts.join(""));
     }
