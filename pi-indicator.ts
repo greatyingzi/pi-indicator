@@ -530,72 +530,74 @@ class InvadersAnimation {
   }
 }
 
-// ─── 5. Cat Animation (side-view running cat, 16x8 two-line) ───────
+// ─── 5. Cat Animation (runcat SVG pixel frames, 16x8 two-line) ──────
 
 const CAT_YELLOW = "\x1b[38;5;226m";
-const CAT_CYAN = "\x1b[38;5;51m";
+
+const CAT_FRAMES: Set<string>[][] = [
+  // Frame 1
+  ["0,5","0,9","0,10","1,4","1,5","1,8","1,9","1,10","1,11",
+   "2,4","2,6","2,7","2,8","2,9","2,10","2,11",
+   "3,4","3,5","3,6","3,7","3,8","3,9","3,10","3,11",
+   "4,4","4,5","4,6","4,7","4,8","4,9","4,10",
+   "5,4","5,5","5,6","5,7","5,8","5,9",
+   "6,4","6,5","6,6","6,7","6,8","6,9","7,5","7,6"].map(k => new Set([k])),
+  // Frame 2
+  ["0,9","0,10","1,4","1,8","1,9","1,10","1,11",
+   "2,4","2,8","2,9","2,10","2,11",
+   "3,4","3,5","3,6","3,7","3,8","3,9","3,10","3,11",
+   "4,5","4,6","4,7","4,8","4,9","4,10",
+   "5,4","5,5","5,6","5,7","5,8","5,9","5,10","5,11",
+   "6,4","6,5","6,6","6,7","7,5","7,6"].map(k => new Set([k])),
+  // Frame 3
+  ["0,3","0,9","0,10","0,11","1,3","1,9","1,10","1,11",
+   "2,3","2,4","2,8","2,9","2,10","2,11","2,12",
+   "3,3","3,4","3,5","3,6","3,7","3,8","3,9","3,10","3,11","3,12",
+   "4,4","4,5","4,6","4,7","4,8","4,9","4,10","4,11","4,12",
+   "5,3","5,4","5,5","5,6","5,7","5,8","5,9","5,10","5,11",
+   "6,3","6,4","6,5","6,6","6,7","6,8","6,9","6,10","6,11","6,12",
+   "7,4","7,10","7,11","7,12"].map(k => new Set([k])),
+  // Frame 4
+  ["0,3","0,4","1,4","1,9","1,10","1,11",
+   "2,4","2,5","2,6","2,7","2,9","2,10","2,11",
+   "3,4","3,5","3,6","3,7","3,8","3,9","3,10","3,11","3,12",
+   "4,3","4,4","4,5","4,6","4,7","4,8","4,9","4,10","4,11","4,12",
+   "5,3","5,4","5,5","5,6","5,7","5,8","5,9","5,10","5,11",
+   "6,4","6,5","6,7","6,8","6,9","6,10","6,11",
+   "7,4","7,5","7,10","7,11"].map(k => new Set([k])),
+  // Frame 5
+  ["0,4","1,4","1,9","1,10","1,11",
+   "2,4","2,5","2,6","2,7","2,9","2,10","2,11",
+   "3,4","3,5","3,6","3,7","3,8","3,9","3,10","3,11",
+   "4,4","4,5","4,6","4,7","4,8","4,9","4,10","4,11",
+   "5,4","5,5","5,6","5,7","5,8","5,9","5,10",
+   "6,5","6,6","6,7","6,8","6,9","6,10","7,9","7,10"].map(k => new Set([k])),
+].map(arr => {
+  const s = new Set<string>();
+  for (const item of arr) for (const k of item) s.add(k);
+  return s;
+});
 
 class CatAnimation {
   private frameIdx = 0;
 
-  private body(): Set<string> {
-    const b = new Set<string>();
-    // Ears
-    ["0,11","0,13"].forEach(k => b.add(k));
-    // Head
-    for (let c = 10; c < 14; c++) { b.add(`1,${c}`); b.add(`2,${c}`); }
-    ["3,10","3,11","3,12"].forEach(k => b.add(k));
-    // Body
-    for (let c = 5; c < 10; c++) b.add(`1,${c}`);
-    for (let c = 4; c < 10; c++) { b.add(`2,${c}`); b.add(`3,${c}`); }
-    return b;
-  }
-
   tick(): string {
-    this.frameIdx = (this.frameIdx + 1) % 4;
-    const cat = this.body();
-    const eye = new Set(["2,12"]);
-
-    switch (this.frameIdx) {
-      case 0: // Stretch
-        ["0,0","1,1","2,2"].forEach(k => cat.add(k));
-        ["4,8","5,9","6,10"].forEach(k => cat.add(k));
-        ["4,5","5,4","6,3"].forEach(k => cat.add(k));
-        for (let c = 3; c < 11; c++) cat.add(`7,${c}`);
-        break;
-      case 1: // Gather
-        ["0,0","0,1","1,2"].forEach(k => cat.add(k));
-        ["4,6","4,7","5,6","5,7","6,6","6,7"].forEach(k => cat.add(k));
-        for (let c = 4; c < 10; c++) cat.add(`7,${c}`);
-        break;
-      case 2: // Opposite stretch
-        ["0,1","1,2","2,3"].forEach(k => cat.add(k));
-        ["4,5","5,4","6,3"].forEach(k => cat.add(k));
-        ["4,8","5,9","6,10"].forEach(k => cat.add(k));
-        for (let c = 3; c < 11; c++) cat.add(`7,${c}`);
-        break;
-      case 3: // Airborne
-        ["0,0","0,1","1,2"].forEach(k => cat.add(k));
-        ["4,6","4,7"].forEach(k => cat.add(k));
-        for (let c = 4; c < 10; c++) cat.add(`7,${c}`);
-        break;
-    }
+    this.frameIdx = (this.frameIdx + 1) % CAT_FRAMES.length;
+    const cat = CAT_FRAMES[this.frameIdx];
 
     const lines: string[] = [];
     for (let half = 0; half < 2; half++) {
       const parts: string[] = [];
       for (let cx = 0; cx < W; cx += 2) {
-        let val = 0, hasEye = false;
+        let val = 0;
         for (let r = 0; r < 4; r++) {
           for (let c = 0; c < 2; c++) {
-            const gk = `${r + half * 4},${cx + c}`;
-            if (cat.has(gk) || eye.has(gk)) val |= DOT_MAP[`${r},${c}`];
-            if (eye.has(gk)) hasEye = true;
+            if (cat.has(`${r + half * 4},${cx + c}`))
+              val |= DOT_MAP[`${r},${c}`];
           }
         }
         const ch = String.fromCharCode(BRAILLE_OFFSET + val);
         if (val === 0) parts.push(EMPTY_BRAILLE);
-        else if (hasEye) parts.push(`${CAT_CYAN}${ch}${RESET}`);
         else parts.push(`${CAT_YELLOW}${ch}${RESET}`);
       }
       lines.push(parts.join(""));
