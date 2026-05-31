@@ -299,110 +299,77 @@ class EqualizerAnimation:
 
 
 # ─── 5. Cat Animation (cute cat face, 16x8 two-line) ────────────────
+# ─── 5. Cat Animation (side-view running cat, 16x8 two-line) ─────────
 
 class CatAnimation:
-    # States: eyes_center, look_left, eyes_center, look_right,
-    #         blink, eyes_center, sleepy, yawn, eyes_center, ear_twitch, blink
-    CYCLE = [
-        ("center", 12),
-        ("left",   6),
-        ("center", 10),
-        ("right",  6),
-        ("center", 8),
-        ("blink",  2),
-        ("center", 12),
-        ("sleepy", 8),
-        ("yawn",   6),
-        ("center", 10),
-        ("twitch", 6),
-        ("center", 8),
-        ("blink",  2),
-    ]
+    # 4-frame running cycle
+    FRAMES: list[set[tuple[int,int]]] = []
+    EYE = (2, 12)
 
     def __init__(self):
-        self.timer = 0
-        self.idx = 0
+        self.frame_idx = 0
+        self.tail_phase = 0
+
+    def _body(self):
+        b = set()
+        b.update([(0,11),(0,13)])  # ears
+        b.update([(1,10),(1,11),(1,12),(1,13)])  # head top
+        b.update([(2,10),(2,11),(2,12),(2,13)])  # face
+        b.update([(3,10),(3,11),(3,12)])          # jaw
+        b.update([(1,5),(1,6),(1,7),(1,8),(1,9)]) # upper body
+        b.update([(2,4),(2,5),(2,6),(2,7),(2,8),(2,9)])  # mid body
+        b.update([(3,4),(3,5),(3,6),(3,7),(3,8),(3,9)])  # belly
+        return b
 
     def tick(self):
-        state, dur = self.CYCLE[self.idx]
-        self.timer += 1
-        if self.timer >= dur:
-            self.timer = 0
-            self.idx = (self.idx + 1) % len(self.CYCLE)
-
-        cat = set()
-        # Ears
-        cat.update([(0,3),(0,4),(0,11),(0,12)])
-        cat.update([(1,2),(1,3),(1,4),(1,5),(1,10),(1,11),(1,12),(1,13)])
-        for c in range(2,14): cat.add((2,c))
-        for c in range(1,15): cat.add((3,c))
-        for c in range(1,15): cat.add((4,c))
-        for c in range(2,14): cat.add((5,c))
-        for c in range(3,13): cat.add((6,c))
-        for c in range(4,12): cat.add((7,c))
-
-        # Eyes (2x2 each, default = center = full gap)
-        le = {(3,5),(3,6),(4,5),(4,6)}
-        re = {(3,9),(3,10),(4,9),(4,10)}
-        nose = {(5,7),(5,8)}
-        cat -= nose
-        cat.discard((6,7)); cat.discard((6,8))
-
-        eyes = set()
-
-        if state == "center":
-            cat -= le; cat -= re
-            eyes = le | re
-        elif state == "left":
-            cat -= {(3,5),(4,5)}; cat -= {(3,9),(4,9)}
-            eyes = {(3,5),(4,5),(3,9),(4,9)}
-        elif state == "right":
-            cat -= {(3,6),(4,6)}; cat -= {(3,10),(4,10)}
-            eyes = {(3,6),(4,6),(3,10),(4,10)}
-        elif state == "blink":
-            pass  # eyes stay filled
-        elif state == "sleepy":
-            cat -= {(3,5),(3,6),(3,9),(3,10)}  # only top half gap
-            eyes = {(3,5),(3,6),(3,9),(3,10)}
-        elif state == "yawn":
-            cat -= le; cat -= re
-            eyes = le | re
-            # Wide mouth
-            for c in range(5,11): cat.discard((6,c))
-        elif state == "twitch":
-            cat -= le; cat -= re
-            eyes = le | re
-            # Right ear flat
-            cat.discard((0,11)); cat.discard((1,12)); cat.discard((1,13))
-            cat.add((1,14))
-
+        self.frame_idx = (self.frame_idx + 1) % 4
         YELLOW = "\x1b[38;5;226m"
         CYAN = "\x1b[38;5;51m"
-        PINK = "\x1b[38;5;213m"
+        RESET = "\x1b[0m"
+
+        cat = self._body()
+        eye = {self.EYE}
+
+        # Tail + legs + ground per frame
+        if self.frame_idx == 0:
+            # Stretch: front forward, back backward
+            cat.update([(0,0),(1,1),(2,2)])  # tail curl
+            cat.update([(4,8),(5,9),(6,10)])  # front leg fwd
+            cat.update([(4,5),(5,4),(6,3)])   # back leg back
+            cat.update([(7,c) for c in range(3,11)])
+        elif self.frame_idx == 1:
+            # Gather
+            cat.update([(0,0),(0,1),(1,2)])
+            cat.update([(4,6),(4,7),(5,6),(5,7),(6,6),(6,7)])
+            cat.update([(7,c) for c in range(4,10)])
+        elif self.frame_idx == 2:
+            # Opposite stretch
+            cat.update([(0,1),(1,2),(2,3)])
+            cat.update([(4,5),(5,4),(6,3)])
+            cat.update([(4,8),(5,9),(6,10)])
+            cat.update([(7,c) for c in range(3,11)])
+        else:
+            # Airborne
+            cat.update([(0,0),(0,1),(1,2)])
+            cat.update([(4,6),(4,7)])
+            cat.update([(7,c) for c in range(4,10)])
 
         lines = []
         for half in range(2):
             parts = []
             for cx in range(0, W, 2):
                 val = 0
-                has_eye = has_nose = has_body = False
+                has_eye = False
                 for r in range(4):
                     for c in range(2):
-                        gk = (r + half * 4, cx + c)
-                        if gk in cat or gk in eyes or gk in nose:
-                            val |= DOT_MAP[(r, c)]
-                        if gk in eyes: has_eye = True
-                        if gk in nose: has_nose = True
-                        if gk in cat: has_body = True
+                        gk = (r + half*4, cx + c)
+                        if gk in cat or gk in eye:
+                            val |= DOT_MAP[(r,c)]
+                        if gk in eye: has_eye = True
                 ch = chr_braille(val)
                 if val == 0: parts.append(EMPTY_BRAILLE)
-                elif has_eye and not has_body and not has_nose:
-                    parts.append(f"{CYAN}{ch}{RESET}")
-                elif has_nose and not has_body and not has_eye:
-                    parts.append(f"{PINK}{ch}{RESET}")
-                elif has_body:
-                    parts.append(f"{YELLOW}{ch}{RESET}")
-                else: parts.append(ch)
+                elif has_eye: parts.append(f"{CYAN}{ch}{RESET}")
+                else: parts.append(f"{YELLOW}{ch}{RESET}")
             lines.append("".join(parts))
         return "\n".join(lines)
 
