@@ -712,6 +712,68 @@ class RacerNPC:
         self.chase_cooldown = 0
 
 
+# ─── Bloom (flower bloom) ─────────────────────────────────────────
+
+class BloomAnimation:
+    """Colorful petals expanding from center, continuous color cycling."""
+
+    def __init__(self):
+        self.frame = 0
+        self.cx = (H - 1) / 2.0   # center row
+        self.cy = (W - 1) / 2.0   # center col
+        self.max_dist = math.sqrt(self.cy**2 + self.cx**2)
+
+    @staticmethod
+    def _hsl_to_ansi256(h, s, l):
+        """HSL (h:0-360, s:0-1, l:0-1) → ANSI 256 color code."""
+        h = h % 360
+        c = (1 - abs(2 * l - 1)) * s
+        x = c * (1 - abs((h / 60) % 2 - 1))
+        m = l - c / 2
+        if   h < 60:  r1, g1, b1 = c, x, 0
+        elif h < 120: r1, g1, b1 = x, c, 0
+        elif h < 180: r1, g1, b1 = 0, c, x
+        elif h < 240: r1, g1, b1 = 0, x, c
+        elif h < 300: r1, g1, b1 = x, 0, c
+        else:         r1, g1, b1 = c, 0, x
+        r = max(0, min(5, int((r1 + m) * 5 + 0.5)))
+        g = max(0, min(5, int((g1 + m) * 5 + 0.5)))
+        b = max(0, min(5, int((b1 + m) * 5 + 0.5)))
+        return 16 + 36 * r + 6 * g + b
+
+    def tick(self):
+        color_map = {}  # (row, col) → ansi_color_code
+        phase = self.frame * 0.22
+        hue_base = self.frame * 8
+
+        for row in range(H):
+            for col in range(W):
+                dx = col - self.cy
+                dy = row - self.cx
+                dist = math.sqrt(dx * dx + dy * dy)
+
+                brightness = 0.0
+                best_hue = hue_base
+
+                # 4 concentric wave fronts expanding outward
+                for w in range(4):
+                    wave_r = (phase + w * (self.max_dist / 4)) % self.max_dist
+                    diff = dist - wave_r
+                    pulse = math.exp(-0.5 * (diff * diff) / 0.6)
+                    if pulse > brightness:
+                        brightness = pulse
+                        best_hue = hue_base + w * 90 + dist * 40
+
+                if brightness > 0.10:
+                    ansi_code = self._hsl_to_ansi256(
+                        best_hue, 0.85, 0.50 + brightness * 0.15
+                    )
+                    color_map[(row, col)] = f"\x1b[38;5;{ansi_code}m"
+
+        self.frame += 1
+        return to_braille_colored(color_map)
+
+
 class RacerAnimation:
     """Road Fighter–style 2-lane racer on 16×8 canvas (two braille lines).
     5 NPC types: gray (slow), blue (dodge), yellow (weaver),
@@ -1040,6 +1102,7 @@ ANIM_DEFS = [
     ("cat",        "Cat 🐱",        CatAnimation,        0.160),
     ("heart",      "Heart ❤️",      HeartAnimation,      0.200),
     ("invaders",   "Invaders 🛸",   InvadersAnimation,   0.120),
+    ("bloom",      "Bloom 🌸",      BloomAnimation,      0.120),
     # ("racer",      "Racer 🏎️",     RacerAnimation,      0.120),  # TODO: rework
 ]
 

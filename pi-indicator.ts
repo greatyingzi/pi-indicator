@@ -712,6 +712,74 @@ interface RacerNPCData {
   chaseCooldown: number;
 }
 
+// ─── Bloom (flower bloom) ─────────────────────────────────────────
+
+class BloomAnimation {
+  private frame = 0;
+  private readonly cx: number;
+  private readonly cy: number;
+  private readonly maxDist: number;
+
+  constructor() {
+    this.cx = (H - 1) / 2;
+    this.cy = (W - 1) / 2;
+    this.maxDist = Math.sqrt(this.cy ** 2 + this.cx ** 2);
+  }
+
+  private hslToAnsi256(h: number, s: number, l: number): number {
+    h = ((h % 360) + 360) % 360;
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = l - c / 2;
+    let r1: number, g1: number, b1: number;
+    if (h < 60)       { r1 = c; g1 = x; b1 = 0; }
+    else if (h < 120) { r1 = x; g1 = c; b1 = 0; }
+    else if (h < 180) { r1 = 0; g1 = c; b1 = x; }
+    else if (h < 240) { r1 = 0; g1 = x; b1 = c; }
+    else if (h < 300) { r1 = x; g1 = 0; b1 = c; }
+    else               { r1 = c; g1 = 0; b1 = x; }
+    const r = Math.max(0, Math.min(5, Math.round((r1 + m) * 5)));
+    const g = Math.max(0, Math.min(5, Math.round((g1 + m) * 5)));
+    const b = Math.max(0, Math.min(5, Math.round((b1 + m) * 5)));
+    return 16 + 36 * r + 6 * g + b;
+  }
+
+  tick(): string {
+    const colorMap = new Map<string, string>();
+    const phase = this.frame * 0.22;
+    const hueBase = this.frame * 8;
+
+    for (let row = 0; row < H; row++) {
+      for (let col = 0; col < W; col++) {
+        const dx = col - this.cy;
+        const dy = row - this.cx;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        let brightness = 0;
+        let bestHue = hueBase;
+
+        for (let w = 0; w < 4; w++) {
+          const waveR = (phase + w * (this.maxDist / 4)) % this.maxDist;
+          const diff = dist - waveR;
+          const pulse = Math.exp((-0.5 * diff * diff) / 0.6);
+          if (pulse > brightness) {
+            brightness = pulse;
+            bestHue = hueBase + w * 90 + dist * 40;
+          }
+        }
+
+        if (brightness > 0.10) {
+          const ansiCode = this.hslToAnsi256(bestHue, 0.85, 0.50 + brightness * 0.15);
+          colorMap.set(`${row},${col}`, `\x1b[38;5;${ansiCode}m`);
+        }
+      }
+    }
+
+    this.frame++;
+    return toBrailleColored(colorMap);
+  }
+}
+
 class RacerAnimation {
   private playerLane = 0;
   private playerCol = 2;
@@ -1039,7 +1107,7 @@ class RacerAnimation {
 
 // ─── Animation Engine ───────────────────────────────────────────────
 
-type AnimType = "snake" | "breakout" | "pacman" | "equalizer" | "invaders" | "heart" | "cat"; // | "racer" TODO rework
+type AnimType = "snake" | "breakout" | "pacman" | "equalizer" | "invaders" | "heart" | "cat" | "bloom"; // | "racer" TODO rework
 
 const ANIM_LIST: { id: AnimType; label: string }[] = [
   { id: "snake", label: "Snake 🐍" },
@@ -1049,6 +1117,7 @@ const ANIM_LIST: { id: AnimType; label: string }[] = [
   { id: "invaders", label: "Invaders 🛸" },
   { id: "heart", label: "Heart ❤️" },
   { id: "cat", label: "Cat 🐱" },
+  { id: "bloom", label: "Bloom 🌸" },
   // { id: "racer", label: "Racer 🏎️" },  // TODO: rework
 ];
 
@@ -1060,6 +1129,7 @@ const ANIM_INTERVALS: Record<AnimType, number> = {
   invaders: 120,
   heart: 200,
   cat: 160,
+  bloom: 120,
   // racer: 120,
 };
 
@@ -1080,6 +1150,7 @@ function createAnimation(type: AnimType): { tick: () => string } {
     case "invaders": return new InvadersAnimation();
     case "heart": return new HeartAnimation();
     case "cat": return new CatAnimation();
+    case "bloom": return new BloomAnimation();
   }
 }
 
@@ -1194,7 +1265,7 @@ export default function (pi: ExtensionAPI) {
   };
 
   pi.registerCommand("indicator", {
-    description: "Switch animation: /indicator [snake|breakout|pacman|equalizer|invaders|heart|cat]",
+    description: "Switch animation: /indicator [snake|breakout|pacman|equalizer|invaders|heart|cat|bloom]",
     handler: cmdHandler,
   });
 }
