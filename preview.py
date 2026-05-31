@@ -298,14 +298,35 @@ class EqualizerAnimation:
         return to_braille(grid)
 
 
-# ─── 5. Cat Animation (cute cat face) ──────────────────────────────
+# ─── 5. Cat Animation (cute cat face, 16x8 two-line) ────────────────
 
 class CatAnimation:
     def __init__(self):
         self.timer = 0
         self.cycle_idx = 0
-        self.cycle = [18, 3, 18, 3]  # open, blink, open, blink
+        self.cycle = [18, 3, 18, 3]
         self.states = ["open", "blink", "open", "blink"]
+
+    def _make_face(self, blink=False):
+        cat = set()
+        cat.update([(0,3),(0,4),(0,11),(0,12)])
+        cat.update([(1,2),(1,3),(1,4),(1,5),(1,10),(1,11),(1,12),(1,13)])
+        for c in range(2,14): cat.add((2,c))
+        for c in range(1,15): cat.add((3,c))
+        for c in range(1,15): cat.add((4,c))
+        for c in range(2,14): cat.add((5,c))
+        for c in range(3,13): cat.add((6,c))
+        for c in range(4,12): cat.add((7,c))
+
+        left_eye = {(3,5),(3,6),(4,5),(4,6)}
+        right_eye = {(3,9),(3,10),(4,9),(4,10)}
+        nose = {(5,7),(5,8)}
+        cat -= left_eye; cat -= right_eye; cat -= nose
+        cat.discard((6,7)); cat.discard((6,8))
+
+        eyes = set() if blink else (left_eye | right_eye)
+        if blink: cat.update(left_eye | right_eye)
+        return cat, eyes, nose
 
     def tick(self):
         self.timer += 1
@@ -314,56 +335,38 @@ class CatAnimation:
             self.cycle_idx = (self.cycle_idx + 1) % len(self.cycle)
 
         state = self.states[self.cycle_idx]
+        cat, eyes, nose = self._make_face(blink=(state == "blink"))
+
         YELLOW = "\x1b[38;5;226m"
         CYAN = "\x1b[38;5;51m"
         PINK = "\x1b[38;5;213m"
 
-        # Base face
-        body = set()
-        body.update([(0,2),(0,3),(0,12),(0,13)])  # ears
-        for c in range(1,15): body.add((1,c))       # row 1 head
-        for c in range(1,15): body.add((2,c))       # row 2 face
-        for c in range(3,13): body.add((3,c))       # chin
-
-        left_eye = {(1,5),(1,6),(2,5),(2,6)}
-        right_eye = {(1,9),(1,10),(2,9),(2,10)}
-        nose = {(2,7),(2,8)}
-
-        body -= left_eye
-        body -= right_eye
-        body -= nose
-        body.discard((3,7))  # mouth gap
-        body.discard((3,8))
-
-        eyes = set()
-        if state == "open":
-            eyes = left_eye | right_eye
-        else:  # blink
-            body.update(left_eye)
-            body.update(right_eye)
-
-        parts = []
-        for cx in range(0, W, 2):
-            val = 0
-            has_eye = has_nose = has_body = False
-            for r in range(H):
-                for c in range(2):
-                    gk = (r, cx + c)
-                    if gk in body or gk in eyes or gk in nose:
-                        val |= DOT_MAP[(r, c)]
-                    if gk in eyes: has_eye = True
-                    if gk in nose: has_nose = True
-                    if gk in body: has_body = True
-            ch = chr_braille(val)
-            if val == 0: parts.append(EMPTY_BRAILLE)
-            elif has_eye and not has_body and not has_nose:
-                parts.append(f"{CYAN}{ch}{RESET}")
-            elif has_nose and not has_body and not has_eye:
-                parts.append(f"{PINK}{ch}{RESET}")
-            elif has_body:
-                parts.append(f"{YELLOW}{ch}{RESET}")
-            else: parts.append(ch)
-        return "".join(parts)
+        # Render as 2 lines (rows 0-3 and rows 4-7)
+        lines = []
+        for half in range(2):
+            parts = []
+            for cx in range(0, W, 2):
+                val = 0
+                has_eye = has_nose = has_body = False
+                for r in range(4):
+                    for c in range(2):
+                        gk = (r + half * 4, cx + c)
+                        if gk in cat or gk in eyes or gk in nose:
+                            val |= DOT_MAP[(r, c)]
+                        if gk in eyes: has_eye = True
+                        if gk in nose: has_nose = True
+                        if gk in cat: has_body = True
+                ch = chr_braille(val)
+                if val == 0: parts.append(EMPTY_BRAILLE)
+                elif has_eye and not has_body and not has_nose:
+                    parts.append(f"{CYAN}{ch}{RESET}")
+                elif has_nose and not has_body and not has_eye:
+                    parts.append(f"{PINK}{ch}{RESET}")
+                elif has_body:
+                    parts.append(f"{YELLOW}{ch}{RESET}")
+                else: parts.append(ch)
+            lines.append("".join(parts))
+        return "\n".join(lines)
 
 
 # ─── 6. Invaders Animation (horizontal) ─────────────────────────────
@@ -515,10 +518,14 @@ def _run_loop(anims, label_only=None, duration=None):
     start = time.time()
     n = len(instances)
 
-    for i in range(n):
+    # Tick once to measure frame heights, then re-create instances
+    init_frames = [anim.tick() for _, anim, _ in instances]
+    frame_heights = [f.count("\n") + 1 for f in init_frames]
+    instances = [(l, type(a)(), iv) for (l, a, iv) in instances]
+
+    total_lines = sum(frame_heights) + (n - 1)
+    for _ in range(total_lines):
         sys.stdout.write("\n")
-        if i < n - 1:
-            sys.stdout.write("\n")
     sys.stdout.flush()
 
     try:
@@ -532,12 +539,14 @@ def _run_loop(anims, label_only=None, duration=None):
                 if label_only:
                     frames.append(frame)
                 else:
-                    frames.append(f"{frame}  \x1b[1m{label}\x1b[0m")
+                    lines = frame.split("\n")
+                    lines[-1] = f"{lines[-1]}  \x1b[1m{label}\x1b[0m"
+                    frames.append("\n".join(lines))
 
-            total_lines = n + (n - 1)
             sys.stdout.write(f"\x1b[{total_lines}A")
             for i, frame in enumerate(frames):
-                sys.stdout.write(f"{CLEAR_LINE}\r{frame}\n")
+                for line in frame.split("\n"):
+                    sys.stdout.write(f"{CLEAR_LINE}\r{line}\n")
                 if i < n - 1:
                     sys.stdout.write(f"{CLEAR_LINE}\r{'─' * 50}\n")
             sys.stdout.flush()
