@@ -559,7 +559,7 @@ class InvadersAnimation:
 # ─── 10. Racer Animation (Road Fighter, 2-lane, colored, 16x8) ──
 
 RACER_PLAYER_COL = 2
-RACER_MAX_NPCS = 3
+RACER_MAX_NPCS = 2
 RACER_PLAYER_COLOR = "\x1b[38;5;82m"
 
 # NPC type definitions: speed, template key, ANSI 256 color
@@ -658,7 +658,7 @@ class RacerAnimation:
         return RACER_CAR_WIDTHS[npc.tmpl_key]
 
     def _can_switch_lane(self, npc, target_lane):
-        """Check if NPC can switch to target_lane without overlapping others."""
+        """Check if NPC can switch to target_lane with at least 4 cols gap from others."""
         col_i = int(round(npc.col))
         nw = self._npc_width(npc)
         for other in self.npcs:
@@ -668,19 +668,16 @@ class RacerAnimation:
                 continue
             oc = int(round(other.col))
             ow = self._npc_width(other)
-            # overlap check: need at least 2 cols gap
-            if not (col_i + nw + 2 <= oc or col_i + oc + ow + 2 <= col_i):
-                # actually: npc occupies [col_i, col_i+nw), other occupies [oc, oc+ow)
-                # no overlap if npc right edge + gap <= other left, or other right edge + gap <= npc left
-                if not (col_i + nw + 2 <= oc or oc + ow + 2 <= col_i):
-                    return False
+            # need at least 4 cols gap between edges
+            if not (col_i + nw + 4 <= oc or oc + ow + 4 <= col_i):
+                return False
         return True
 
     def _spawn_npc(self):
         lane = random.randint(0, 1)
         # keep gap in the same lane
         for npc in self.npcs:
-            if npc.lane == lane and npc.col >= W - 8:
+            if npc.lane == lane and npc.col >= W - 10:
                 return
         npc_type = self._pick_npc_type()
         # Also check the other lane to avoid cross-lane spawn on top
@@ -723,7 +720,7 @@ class RacerAnimation:
 
         # ── Spawn ──
         self.spawn_timer += 1
-        base_interval = max(8, 16 - int(diff * 6))
+        base_interval = max(12, 22 - int(diff * 8))
         if self.spawn_timer >= base_interval and len(self.npcs) < RACER_MAX_NPCS:
             self.spawn_timer = 0
             self._spawn_npc()

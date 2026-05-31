@@ -576,7 +576,7 @@ class CatAnimation {
 // ─── 7. Racer Animation (Road Fighter, 2-lane, colored, 16x8) ──────
 
 const RACER_PLAYER_COL = 2;
-const RACER_MAX_NPCS = 3;
+const RACER_MAX_NPCS = 2;
 const RACER_PLAYER_COLOR = "\x1b[38;5;82m";
 
 // NPC type definitions: speed, template key, ANSI 256 color
@@ -650,8 +650,8 @@ class RacerAnimation {
       if (other.lane !== targetLane) continue;
       const oc = Math.round(other.col);
       const ow = this.npcWidth(other);
-      // need at least 2 cols gap
-      if (!(colI + nw + 2 <= oc || oc + ow + 2 <= colI)) return false;
+      // need at least 4 cols gap between edges
+      if (!(colI + nw + 4 <= oc || oc + ow + 4 <= colI)) return false;
     }
     return true;
   }
@@ -676,7 +676,7 @@ class RacerAnimation {
   private spawnNPC(): void {
     const lane = Math.floor(Math.random() * 2);
     // keep gap in the same lane
-    if (this.npcs.some(n => n.lane === lane && n.col >= W - 8)) return;
+    if (this.npcs.some(n => n.lane === lane && n.col >= W - 10)) return;
     const npcType = this.pickNpcType();
     // Also check spacing to avoid spawning on top of same-lane NPCs
     const newW = RACER_CAR_WIDTHS[RACER_NPC_DEFS[npcType].tmpl];
@@ -728,7 +728,7 @@ class RacerAnimation {
 
     // ── Spawn ──
     this.spawnTimer++;
-    const baseInterval = Math.max(8, 16 - Math.floor(diff * 6));
+    const baseInterval = Math.max(12, 22 - Math.floor(diff * 8));
     if (this.spawnTimer >= baseInterval && this.npcs.length < RACER_MAX_NPCS) {
       this.spawnTimer = 0;
       this.spawnNPC();
