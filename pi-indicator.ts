@@ -575,7 +575,8 @@ class CatAnimation {
 
 // ─── 7. Racer Animation (Road Fighter, 2-lane, colored, 16x8) ──────
 
-const RACER_PLAYER_COL = 2;
+const RACER_PLAYER_MIN_COL = 1;
+const RACER_PLAYER_MAX_COL = 4;
 const RACER_MAX_NPCS = 2;
 const RACER_PLAYER_COLOR = "\x1b[38;5;82m";
 
@@ -628,6 +629,7 @@ interface RacerNPCData {
 
 class RacerAnimation {
   private playerLane = 0;
+  private playerCol = 2;
   private npcs: RacerNPCData[] = [];
   private spawnTimer = 12; // start near interval so first NPC appears quickly
   private ticks = 0;
@@ -723,7 +725,7 @@ class RacerAnimation {
     }
 
     const diff = this.difficulty();
-    const pc = RACER_PLAYER_COL;
+    const pc = this.playerCol;
     const pw = RACER_CAR_WIDTHS["standard"];
 
     // ── Spawn ──
@@ -833,42 +835,67 @@ class RacerAnimation {
       this.explodeCol = Math.round(colHit.col);
     }
 
-    // ── Player AI (after collision check) ──
-    const LOOKAHEAD = 14;
+    // ── Player AI: lane + column positioning via eval_position ──
 
-    const laneScore = (lane: number): number => {
-      let minDist = LOOKAHEAD + 1;
-      let threat = 0;
+    const evalPosition = (lane: number, col: number): number => {
+      let score = 0;
       for (const npc of this.npcs) {
-        if (npc.lane !== lane) continue;
         const colI = Math.round(npc.col);
         const nw = RACER_CAR_WIDTHS[npc.tmplKey];
-        const gap = colI - (pc + pw);
-        if (gap >= 0 && gap < minDist) minDist = gap;
-        if (npc.npcType === "red" && colI > pc - 2) threat += 4;
-        if (npc.npcType === "yellow" && colI > pc) threat += 2;
-        if (npc.npcType === "truck" && colI > pc) threat += 1;
+        const gap = colI - (col + pw);
+        if (gap < 0) {
+          const overlapPenalty = Math.abs(gap) + 1;
+          if (npc.lane === lane) {
+            score -= 50 * overlapPenalty;
+          } else {
+            score -= 5;
+          }
+        } else {
+          if (npc.lane === lane) {
+            score += gap;
+            if (npc.npcType === "red") score -= 4;
+            else if (npc.npcType === "yellow") score -= 2;
+          } else {
+            score += 2;
+          }
+        }
       }
-      return minDist - threat;
+      if (col > 3) score -= 1;
+      if (col < 1) score -= 1;
+      return score;
     };
 
-    const curScore = laneScore(this.playerLane);
-    const otherLane = 1 - this.playerLane;
-    const otherScore = laneScore(otherLane);
+    let bestLane = this.playerLane;
+    let bestCol = this.playerCol;
+    let bestScore = evalPosition(this.playerLane, this.playerCol);
 
-    const laneSafe = (lane: number): boolean => {
-      for (const npc of this.npcs) {
-        if (npc.lane !== lane) continue;
-        const colI = Math.round(npc.col);
-        const nw = RACER_CAR_WIDTHS[npc.tmplKey];
-        if (!(colI + nw <= pc || colI >= pc + pw)) return false;
+    for (const lane of [0, 1]) {
+      for (let col = RACER_PLAYER_MIN_COL; col <= RACER_PLAYER_MAX_COL; col++) {
+        let overlap = false;
+        for (const npc of this.npcs) {
+          if (npc.lane !== lane) continue;
+          const ci = Math.round(npc.col);
+          const nw = RACER_CAR_WIDTHS[npc.tmplKey];
+          if (!(ci + nw <= col || ci >= col + pw)) { overlap = true; break; }
+        }
+        if (overlap) continue;
+
+        let s = evalPosition(lane, col);
+        if (lane === this.playerLane) s += 0.5;
+        if (col === this.playerCol) s += 0.3;
+
+        if (s > bestScore) {
+          bestScore = s;
+          bestLane = lane;
+          bestCol = col;
+        }
       }
-      return true;
-    };
-
-    if (laneSafe(otherLane) && otherScore > curScore) {
-      this.playerLane = otherLane;
     }
+
+    // Apply: lane switches instantly, col moves 1 step per frame
+    this.playerLane = bestLane;
+    if (this.playerCol < bestCol) this.playerCol += 1;
+    else if (this.playerCol > bestCol) this.playerCol -= 1;
 
     // ── Render ──
     const colorMap = new Map<string, string>();

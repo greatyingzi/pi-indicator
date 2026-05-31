@@ -558,7 +558,8 @@ class InvadersAnimation:
 
 # ─── 10. Racer Animation (Road Fighter, 2-lane, colored, 16x8) ──
 
-RACER_PLAYER_COL = 2
+RACER_PLAYER_MIN_COL = 1
+RACER_PLAYER_MAX_COL = 4
 RACER_MAX_NPCS = 2
 RACER_PLAYER_COLOR = "\x1b[38;5;82m"
 
@@ -627,6 +628,7 @@ class RacerAnimation:
 
     def __init__(self):
         self.player_lane = 0
+        self.player_col = 2
         self.npcs: list[RacerNPC] = []
         self.spawn_timer = 12  # start near interval so first NPC appears quickly
         self.ticks = 0
@@ -715,7 +717,7 @@ class RacerAnimation:
             return self._render(color_map)
 
         diff = self._difficulty()
-        pc = RACER_PLAYER_COL
+        pc = self.player_col
         pw = RACER_CAR_WIDTHS['standard']
 
         # ── Spawn ──
@@ -812,44 +814,72 @@ class RacerAnimation:
             self.exploding = len(self.EXPLODE_FRAMES)  # 4 frames
             self.explode_col = int(round(hit.col))
 
-        # ── Player AI (after collision check) ──
-        LOOKAHEAD = 14
+        # ── Player AI: lane + column positioning ──
 
-        def lane_score(lane):
-            min_dist = LOOKAHEAD + 1
-            threat = 0
+        # Evaluate each (lane, col) combination for safety
+        def eval_position(lane, col):
+            """Score a position: higher = safer. Considers distance to NPCs."""
+            score = 0
             for npc in self.npcs:
-                if npc.lane != lane:
-                    continue
                 col_i = int(round(npc.col))
                 nw = RACER_CAR_WIDTHS[npc.tmpl_key]
-                gap = col_i - (pc + pw)
-                if 0 <= gap < min_dist:
-                    min_dist = gap
-                if npc.npc_type == 'red' and col_i > pc - 2:
-                    threat += 4
-                if npc.npc_type == 'yellow' and col_i > pc:
-                    threat += 2
-                if npc.npc_type == 'truck' and col_i > pc:
-                    threat += 1
-            return min_dist - threat
+                # Gap between player front and NPC back
+                gap = col_i - (col + pw)
+                if gap < 0:
+                    # NPC is behind or overlapping — penalty
+                    overlap_penalty = abs(gap) + 1
+                    if npc.lane == lane:
+                        score -= 50 * overlap_penalty  # same lane overlap = very bad
+                    else:
+                        score -= 5  # other lane, less concern
+                else:
+                    # NPC ahead — closer = more dangerous
+                    if npc.lane == lane:
+                        score += gap  # more gap = better
+                        if npc.npc_type == 'red':
+                            score -= 4  # red might chase
+                        elif npc.npc_type == 'yellow':
+                            score -= 2  # yellow unpredictable
+                    else:
+                        score += 2  # other lane NPC is fine
+            # Prefer staying in range [1,3] — avoid edges
+            if col > 3: score -= 1
+            if col < 1: score -= 1
+            return score
 
-        cur_score = lane_score(self.player_lane)
-        other_lane = 1 - self.player_lane
-        other_score = lane_score(other_lane)
+        best_lane = self.player_lane
+        best_col = self.player_col
+        best_score = eval_position(self.player_lane, self.player_col)
 
-        def lane_safe(lane):
-            for npc in self.npcs:
-                if npc.lane != lane:
-                    continue
-                col_i = int(round(npc.col))
-                nw = RACER_CAR_WIDTHS[npc.tmpl_key]
-                if not (col_i + nw <= pc or col_i >= pc + pw):
-                    return False
-            return True
+        for lane in [0, 1]:
+            for col in range(RACER_PLAYER_MIN_COL, RACER_PLAYER_MAX_COL + 1):
+                # Skip if this position overlaps an NPC
+                overlap = False
+                for npc in self.npcs:
+                    if npc.lane != lane: continue
+                    ci = int(round(npc.col))
+                    nw = RACER_CAR_WIDTHS[npc.tmpl_key]
+                    if not (ci + nw <= col or ci >= col + pw):
+                        overlap = True
+                        break
+                if overlap: continue
 
-        if lane_safe(other_lane) and other_score > cur_score:
-            self.player_lane = other_lane
+                s = eval_position(lane, col)
+                # Add small bonus for staying in current lane/col (reduce jitter)
+                if lane == self.player_lane: s += 0.5
+                if col == self.player_col: s += 0.3
+
+                if s > best_score:
+                    best_score = s
+                    best_lane = lane
+                    best_col = col
+
+        # Apply: lane switches instantly, col moves 1 step per frame
+        self.player_lane = best_lane
+        if self.player_col < best_col:
+            self.player_col += 1
+        elif self.player_col > best_col:
+            self.player_col -= 1
 
         # ── Render ──
         color_map = {}
