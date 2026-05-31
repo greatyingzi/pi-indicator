@@ -755,6 +755,7 @@ export default function (pi: ExtensionAPI) {
       stopAnimation();
       startAnimation(selected.id, { ui, hasUI: true, signal: undefined } as any);
       savePref(selected.id);
+      ui.notify(`Switched to ${selected.label}`);
     }
   };
 
