@@ -697,37 +697,58 @@ class CatAnimation {
   }
 }
 
-// ─── 7. Racer Animation (horizontal 2-lane overtaking, 16x8) ──────
+// ─── 7. Racer Animation (top-down car pixel art, 16x8 two-lane) ──────
 
 const RACER_GRAY = "\x1b[38;5;237m";
 const RACER_DASH = "\x1b[38;5;244m";
 const RACER_GREEN = "\x1b[38;5;82m";
+const RACER_CYAN = "\x1b[38;5;87m";
 const RACER_CAR_COLORS = [
   "\x1b[38;5;196m",   // red
   "\x1b[38;5;214m",   // orange
   "\x1b[38;5;69m",    // blue
   "\x1b[38;5;201m",   // magenta
   "\x1b[38;5;226m",   // yellow
-  "\x1b[38;5;46m",    // green
 ];
 
-// Car shapes: [topRowColOffsets, botRowColOffsets]
-const PLAYER_TOP = [0, 1];
-const PLAYER_BOT = [0, 1, 2];
-const ENEMY_SHAPES: [number[], number[]][] = [
-  [[0, 1], [0, 1, 2]],       // standard
-  [[1, 2], [0, 1, 2]],       // cab-forward
-  [[0], [0, 1, 2]],          // flat top
-  [[0, 2], [0, 1, 2]],       // double cab
+// Car template: [row, col] facing RIGHT — 4 rows × 9 dot-columns
+const CAR_PIXELS: [number, number][] = [
+  [0,0],[3,0],               // front wheel arches
+  [0,1],[1,1],[2,1],[3,1],   // hood full width
+  [0,2],[1,2],[2,2],[3,2],   // hood full width
+  [1,3],[2,3],               // windshield
+  [1,4],[2,4],               // windshield
+  [1,5],[2,5],               // roof
+  [1,6],[2,6],               // roof
+  [0,7],[1,7],[2,7],[3,7],   // rear axle full width
+  [1,8],[2,8],               // tail
 ];
 
-function laneRows(lane: number): [number, number] {
-  return lane === 0 ? [1, 2] : [5, 6];
+// Mirrored pixels for left-facing enemies (new_col = 8 - orig_col)
+const MIRRORED_PIXELS: [number, number][] = CAR_PIXELS.map(([r, c]) => [r, 8 - c]);
+
+// Color category sets (original template coords)
+const WHEEL_SET = new Set(["0,0","3,0","0,7","3,7"]);
+const WINDSHIELD_SET = new Set(["1,3","2,3","1,4","2,4"]);
+const TAIL_SET = new Set(["1,8","2,8"]);
+
+const PLAYER_COL = 1; // base column for player car (cols 1-9)
+
+function rowOffset(lane: number): number {
+  return lane === 0 ? 0 : 4;
+}
+
+function pixelColor(r: number, c: number, bodyColor: string): string {
+  const key = `${r},${c}`;
+  if (WHEEL_SET.has(key)) return RACER_GRAY;
+  if (WINDSHIELD_SET.has(key)) return RACER_CYAN;
+  if (TAIL_SET.has(key)) return RACER_GRAY;
+  return bodyColor;
 }
 
 class RacerAnimation {
   private playerLane = 0;
-  private enemies: [number, number, number, number][] = []; // [lane, col, shapeIdx, colorIdx]
+  private enemies: [number, number, number][] = []; // [lane, col, colorIdx]
   private overtakes = 0;
   private spawnTimer = 0;
   private roadPhase = 0;
@@ -735,108 +756,99 @@ class RacerAnimation {
   tick(): string {
     this.roadPhase++;
 
-    // Spawn enemy cars (max 1 per lane near spawn)
+    // Spawn enemy cars (wider cars need more spacing)
     this.spawnTimer++;
-    const interval = Math.max(3, 8 - Math.min(Math.floor(this.overtakes / 3), 5));
+    const interval = Math.max(5, 12 - Math.min(Math.floor(this.overtakes / 3), 7));
     if (this.spawnTimer >= interval) {
       this.spawnTimer = 0;
       const lane = Math.floor(Math.random() * 2);
-      const blocked = this.enemies.some(e => e[0] === lane && e[1] >= W - 5);
+      const blocked = this.enemies.some(e => e[0] === lane && e[1] >= W - 4);
       if (!blocked) {
-        const si = Math.floor(Math.random() * ENEMY_SHAPES.length);
         const ci = Math.floor(Math.random() * RACER_CAR_COLORS.length);
-        this.enemies.push([lane, W, si, ci]);
+        this.enemies.push([lane, W + 1, ci]);
       }
     }
 
     // Move enemies left
-    const survived: [number, number, number, number][] = [];
+    const survived: [number, number, number][] = [];
     for (const e of this.enemies) {
       e[1] -= 1;
-      if (e[1] < -4) this.overtakes++;
+      if (e[1] < -10) this.overtakes++;
       else survived.push(e);
     }
     this.enemies = survived;
 
-    // AI: dodge threats in current lane
+    // AI: dodge — look for threats in current lane approaching player
+    const pc = PLAYER_COL;
     const threats = this.enemies
-      .filter(e => e[1] >= 1 && e[1] <= 6)
-      .sort((a, b) => a[1] - b[1]);
-    for (const e of threats) {
-      if (e[0] === this.playerLane) {
-        const other = 1 - this.playerLane;
-        const safe = !this.enemies.some(oe => oe[0] === other && oe[1] >= -1 && oe[1] <= 6);
-        if (safe) this.playerLane = other;
-        break;
-      }
+      .filter(e => e[0] === this.playerLane && e[1] <= pc + 8 && e[1] + 8 >= pc);
+    if (threats.length > 0) {
+      const other = 1 - this.playerLane;
+      const safe = !this.enemies.some(oe =>
+        oe[0] === other && oe[1] <= pc + 10 && oe[1] + 8 >= pc - 2);
+      if (safe) this.playerLane = other;
     }
 
-    // Collision check
-    const [pRow] = laneRows(this.playerLane);
+    // Collision check (pixel-level overlap)
+    const pOff = rowOffset(this.playerLane);
+    const playerSet = new Set<string>();
+    for (const [r, c] of CAR_PIXELS) {
+      playerSet.add(`${r + pOff},${pc + c}`);
+    }
+    let collided = false;
     for (const e of this.enemies) {
-      const [eRow] = laneRows(e[0]);
-      if (eRow === pRow && e[1] >= -2 && e[1] <= 3) {
-        this.enemies = [];
-        this.overtakes = Math.max(0, this.overtakes - 5);
-        break;
+      const eOff = rowOffset(e[0]);
+      for (const [r, mc] of MIRRORED_PIXELS) {
+        if (playerSet.has(`${r + eOff},${e[1] + mc}`)) {
+          collided = true;
+          break;
+        }
       }
+      if (collided) break;
+    }
+    if (collided) {
+      this.enemies = [];
+      this.overtakes = Math.max(0, this.overtakes - 5);
     }
 
     // ── Render ──
     const grid = new Set<string>();
     const colorMap = new Map<string, string>();
 
-    // Top road edge (row 0)
+    // Road shoulder dashes — top edge (row 0) and bottom edge (row 7)
     for (let c = 0; c < W; c++) {
       if ((c + this.roadPhase) % 4 < 2) {
-        grid.add(`0,${c}`); colorMap.set(`0,${c}`, RACER_GRAY);
+        grid.add(`0,${c}`); colorMap.set(`0,${c}`, RACER_DASH);
+        grid.add(`7,${c}`); colorMap.set(`7,${c}`, RACER_DASH);
       }
     }
 
-    // Center divider dashes (rows 3-4)
-    for (let c = 0; c < W; c++) {
-      if ((c + this.roadPhase) % 6 < 3) {
-        grid.add(`3,${c}`); colorMap.set(`3,${c}`, RACER_DASH);
-        grid.add(`4,${c}`); colorMap.set(`4,${c}`, RACER_DASH);
-      }
+    // Player car (facing right, template as-is)
+    const pOff2 = rowOffset(this.playerLane);
+    for (const [r, c] of CAR_PIXELS) {
+      const absR = r + pOff2;
+      const absC = PLAYER_COL + c;
+      const color = pixelColor(r, c, RACER_GREEN);
+      const k = `${absR},${absC}`;
+      grid.add(k); colorMap.set(k, color);
     }
 
-    // Bottom road edge (row 7)
-    for (let c = 0; c < W; c++) {
-      if ((c + this.roadPhase) % 4 < 2) {
-        grid.add(`7,${c}`); colorMap.set(`7,${c}`, RACER_GRAY);
-      }
-    }
-
-    // Player car (bright green, cols 1-3)
-    const [prTop, prBot] = laneRows(this.playerLane);
-    for (const dc of PLAYER_TOP) {
-      const k = `${prTop},${1 + dc}`; grid.add(k); colorMap.set(k, RACER_GREEN);
-    }
-    for (const dc of PLAYER_BOT) {
-      const k = `${prBot},${1 + dc}`; grid.add(k); colorMap.set(k, RACER_GREEN);
-    }
-
-    // Enemy cars
+    // Enemy cars (facing left, mirrored template)
     for (const e of this.enemies) {
-      const [shapeTop, shapeBot] = ENEMY_SHAPES[e[2]];
-      const color = RACER_CAR_COLORS[e[3]];
-      const [erTop, erBot] = laneRows(e[0]);
-      for (const dc of shapeTop) {
-        const c = e[1] + dc;
-        if (c >= 0 && c < W) {
-          const k = `${erTop},${c}`; grid.add(k); colorMap.set(k, color);
-        }
-      }
-      for (const dc of shapeBot) {
-        const c = e[1] + dc;
-        if (c >= 0 && c < W) {
-          const k = `${erBot},${c}`; grid.add(k); colorMap.set(k, color);
+      const bodyColor = RACER_CAR_COLORS[e[2]];
+      const eOff = rowOffset(e[0]);
+      for (const [r, mc] of MIRRORED_PIXELS) {
+        const absC = e[1] + mc;
+        if (absC >= 0 && absC < W) {
+          const origC = 8 - mc; // reverse mirror for color lookup
+          const color = pixelColor(r, origC, bodyColor);
+          const k = `${r + eOff},${absC}`;
+          grid.add(k); colorMap.set(k, color);
         }
       }
     }
 
-    // Braille render (two lines)
+    // Braille render (two lines, each 4 dot-rows)
     const lines: string[] = [];
     for (let half = 0; half < 2; half++) {
       const parts: string[] = [];

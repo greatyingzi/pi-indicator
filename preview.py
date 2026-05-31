@@ -707,26 +707,33 @@ class InvadersAnimation:
         return "".join(parts)
 
 
-# ─── 10. Racer Animation (horizontal 2-lane overtaking, 16x8) ──────
+# ─── 10. Racer Animation (horizontal 2-lane, top-down car pixel art 16x8) ──
 
 class RacerAnimation:
-    """Side-scrolling 2-lane racer on 16x8 canvas.
-    Lane 0: rows 1-2 (upper), Lane 1: rows 5-6 (lower).
-    Cars are 2-row × 3-col pixel art.
+    """Side-scrolling 2-lane racer on 16x8 canvas (two braille lines).
+    Lane 0: rows 0-3 (upper braille line), Lane 1: rows 4-7 (lower).
+    Cars are 4-row × 9-dot-col NES-style top-down pixel art.
     """
 
-    # Car shapes: (top_row_dots, bot_row_dots) each is list of col offsets
-    # Player car (facing right, sleek)
-    PLAYER_TOP = [0, 1]        # windscreen slope
-    PLAYER_BOT = [0, 1, 2]     # body + wheels
-
-    # Enemy car shapes (facing left, varied)
-    ENEMY_SHAPES = [
-        ([0, 1], [0, 1, 2]),       # same as player
-        ([1, 2], [0, 1, 2]),       # cab-forward
-        ([0], [0, 1, 2]),          # flat top
-        ([0, 2], [0, 1, 2]),       # double cab
+    # Car template pixels (row, col) facing RIGHT — use as-is for player
+    CAR_PIXELS = [
+        (0,0), (3,0),               # front wheel arches
+        (0,1), (1,1), (2,1), (3,1), # hood full width
+        (0,2), (1,2), (2,2), (3,2), # hood full width
+        (1,3), (2,3),               # windshield
+        (1,4), (2,4),               # windshield
+        (1,5), (2,5),               # roof
+        (1,6), (2,6),               # roof
+        (0,7), (1,7), (2,7), (3,7), # rear axle full width
+        (1,8), (2,8),               # tail
     ]
+    # Pre-computed mirrored pixels for left-facing enemies
+    MIRRORED_PIXELS = [(r, 8 - c) for r, c in CAR_PIXELS]
+
+    # Color category sets (original template coords)
+    WHEEL_SET = frozenset({(0,0), (3,0), (0,7), (3,7)})
+    WINDSHIELD_SET = frozenset({(1,3), (2,3), (1,4), (2,4)})
+    TAIL_SET = frozenset({(1,8), (2,8)})
 
     CAR_COLORS = [
         "\x1b[38;5;196m",   # red
@@ -734,67 +741,84 @@ class RacerAnimation:
         "\x1b[38;5;69m",    # blue
         "\x1b[38;5;201m",   # magenta
         "\x1b[38;5;226m",   # yellow
-        "\x1b[38;5;46m",    # green
     ]
+
+    PLAYER_COL = 1   # base column for player car (cols 1-9)
 
     def __init__(self):
         self.player_lane = 0
-        self.enemies = []      # [[lane, col, shape_idx, color_idx], ...]
+        self.enemies = []      # [[lane, col, color_idx], ...]
         self.overtakes = 0
         self.spawn_timer = 0
         self.road_phase = 0
 
-    def _lane_rows(self, lane):
-        """Return (top_row, bot_row) for a lane."""
-        return (1, 2) if lane == 0 else (5, 6)
+    @staticmethod
+    def _row_offset(lane):
+        """Row offset for a lane: 0 for lane 0, 4 for lane 1."""
+        return 0 if lane == 0 else 4
+
+    def _pixel_color(self, r, c, body_color):
+        """Determine color for a template pixel by its role."""
+        if (r, c) in self.WHEEL_SET:
+            return "\x1b[38;5;237m"   # gray
+        if (r, c) in self.WINDSHIELD_SET:
+            return "\x1b[38;5;87m"    # cyan
+        if (r, c) in self.TAIL_SET:
+            return "\x1b[38;5;237m"   # gray
+        return body_color
 
     def tick(self):
         self.road_phase += 1
 
-        # Spawn enemy cars (max 2 side by side = one per lane)
+        # Spawn enemy cars (wider cars need more spacing)
         self.spawn_timer += 1
-        interval = max(3, 8 - min(self.overtakes // 3, 5))
+        interval = max(5, 12 - min(self.overtakes // 3, 7))
         if self.spawn_timer >= interval:
             self.spawn_timer = 0
             lane = random.randint(0, 1)
-            # Don't stack more than 1 per lane near spawn
-            blocked = any(e[0] == lane and e[1] >= W - 5 for e in self.enemies)
+            blocked = any(e[0] == lane and e[1] >= W - 4 for e in self.enemies)
             if not blocked:
-                si = random.randint(0, len(self.ENEMY_SHAPES) - 1)
                 ci = random.randint(0, len(self.CAR_COLORS) - 1)
-                self.enemies.append([lane, W, si, ci])
+                self.enemies.append([lane, W + 1, ci])
 
         # Move enemies left
         survived = []
         for e in self.enemies:
             e[1] -= 1
-            if e[1] < -4:
+            if e[1] < -10:
                 self.overtakes += 1
             else:
                 survived.append(e)
         self.enemies = survived
 
-        # AI: dodge — look ahead for threats in current lane
-        threats = sorted([e for e in self.enemies if e[1] <= 6 and e[1] >= 1],
-                         key=lambda x: x[1])
-        for e in threats:
-            if e[0] == self.player_lane:
-                other = 1 - self.player_lane
-                # Check other lane is safe
-                safe = not any(oe[0] == other and -1 <= oe[1] <= 6
-                               for oe in self.enemies)
-                if safe:
-                    self.player_lane = other
-                break
+        # AI: dodge — look for threats in current lane approaching player
+        pc = self.PLAYER_COL
+        threats = [e for e in self.enemies
+                   if e[0] == self.player_lane and e[1] <= pc + 8 and e[1] + 8 >= pc]
+        if threats:
+            other = 1 - self.player_lane
+            safe = not any(oe[0] == other and oe[1] <= pc + 10 and oe[1] + 8 >= pc - 2
+                           for oe in self.enemies)
+            if safe:
+                self.player_lane = other
 
-        # Collision check
-        pr, _ = self._lane_rows(self.player_lane)
+        # Collision check (pixel-level overlap)
+        p_off = self._row_offset(self.player_lane)
+        player_set = set()
+        for r, c in self.CAR_PIXELS:
+            player_set.add((r + p_off, pc + c))
+        collided = False
         for e in self.enemies:
-            er, _ = self._lane_rows(e[0])
-            if er == pr and -2 <= e[1] <= 3:
-                self.enemies.clear()
-                self.overtakes = max(0, self.overtakes - 5)
+            e_off = self._row_offset(e[0])
+            for r, mc in self.MIRRORED_PIXELS:
+                if (r + e_off, e[1] + mc) in player_set:
+                    collided = True
+                    break
+            if collided:
                 break
+        if collided:
+            self.enemies.clear()
+            self.overtakes = max(0, self.overtakes - 5)
 
         # ── Render ──
         grid = set()
@@ -802,46 +826,36 @@ class RacerAnimation:
 
         GRAY = "\x1b[38;5;237m"
         DASH = "\x1b[38;5;244m"
-
-        # Top road edge (row 0)
-        for c in range(W):
-            if (c + self.road_phase) % 4 < 2:
-                grid.add((0, c)); color_map[(0, c)] = GRAY
-
-        # Center divider dashes (row 3, row 4)
-        for c in range(W):
-            if (c + self.road_phase) % 6 < 3:
-                grid.add((3, c)); color_map[(3, c)] = DASH
-                grid.add((4, c)); color_map[(4, c)] = DASH
-
-        # Bottom road edge (row 7)
-        for c in range(W):
-            if (c + self.road_phase) % 4 < 2:
-                grid.add((7, c)); color_map[(7, c)] = GRAY
-
-        # Player car (bright green, at col 1-3)
         GREEN = "\x1b[38;5;82m"
-        pr_top, pr_bot = self._lane_rows(self.player_lane)
-        for dc in self.PLAYER_TOP:
-            k = (pr_top, 1 + dc); grid.add(k); color_map[k] = GREEN
-        for dc in self.PLAYER_BOT:
-            k = (pr_bot, 1 + dc); grid.add(k); color_map[k] = GREEN
 
-        # Enemy cars
+        # Road shoulder dashes — top edge (row 0) and bottom edge (row 7)
+        for c in range(W):
+            if (c + self.road_phase) % 4 < 2:
+                grid.add((0, c)); color_map[(0, c)] = DASH
+            if (c + self.road_phase) % 4 < 2:
+                grid.add((7, c)); color_map[(7, c)] = DASH
+
+        # Player car (facing right, template as-is)
+        p_off = self._row_offset(self.player_lane)
+        for r, c in self.CAR_PIXELS:
+            abs_r = r + p_off
+            abs_c = self.PLAYER_COL + c
+            color = self._pixel_color(r, c, GREEN)
+            grid.add((abs_r, abs_c)); color_map[(abs_r, abs_c)] = color
+
+        # Enemy cars (facing left, mirrored template)
         for e in self.enemies:
-            shape_top, shape_bot = self.ENEMY_SHAPES[e[2]]
-            color = self.CAR_COLORS[e[3]]
-            er_top, er_bot = self._lane_rows(e[0])
-            for dc in shape_top:
-                c = e[1] + dc
-                if 0 <= c < W:
-                    k = (er_top, c); grid.add(k); color_map[k] = color
-            for dc in shape_bot:
-                c = e[1] + dc
-                if 0 <= c < W:
-                    k = (er_bot, c); grid.add(k); color_map[k] = color
+            body_color = self.CAR_COLORS[e[2]]
+            e_off = self._row_offset(e[0])
+            for r, mc in self.MIRRORED_PIXELS:
+                abs_c = e[1] + mc
+                if 0 <= abs_c < W:
+                    orig_c = 8 - mc   # reverse mirror for color lookup
+                    color = self._pixel_color(r, orig_c, body_color)
+                    grid.add((r + e_off, abs_c))
+                    color_map[(r + e_off, abs_c)] = color
 
-        # Braille render (two lines)
+        # Braille render (two lines, each 4 dot-rows)
         lines = []
         for half in range(2):
             parts = []
