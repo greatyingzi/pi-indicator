@@ -656,23 +656,7 @@ class RacerAnimation {
     // ── Render ──
     const grid = new Set<string>();
 
-    // Road edge dashes (row 0 and row 7)
-    for (let c = 0; c < W; c++) {
-      if ((c + this.roadPhase) % 3 < 2) {
-        grid.add(`0,${c}`);
-        grid.add(`7,${c}`);
-      }
-    }
-
-    // Center lane divider (rows 3-4 boundary)
-    for (let c = 0; c < W; c++) {
-      if ((c + this.roadPhase + 1) % 4 < 2) {
-        grid.add(`3,${c}`);
-        grid.add(`4,${c}`);
-      }
-    }
-
-    // Player car (offset +1 row padding)
+    // Player car
     for (const k of CAR_RIGHT) {
       const [r, c] = k.split(",").map(Number);
       grid.add(`${r + laneOff(this.playerLane) + 1},${pc + c}`);

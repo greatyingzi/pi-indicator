@@ -632,19 +632,7 @@ class RacerAnimation:
         # ── Render ──
         grid = set()
 
-        # Road dashes (row 0 and row 7)
-        for c in range(W):
-            if (c + self.road_phase) % 3 < 2:
-                grid.add((0, c))
-                grid.add((7, c))
-
-        # Center lane divider dashes (between lanes: row 3-4 boundary)
-        for c in range(W):
-            if (c + self.road_phase + 1) % 4 < 2:
-                grid.add((3, c))
-                grid.add((4, c))
-
-        # Player car (top of lane = offset + 1, leaving 1 row margin)
+        # Player car
         for r, c in self.CAR_RIGHT:
             grid.add((r + p_off + 1, pc + c))
 
