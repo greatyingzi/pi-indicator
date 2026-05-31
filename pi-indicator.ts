@@ -396,11 +396,15 @@ class EqualizerAnimation {
 class InvadersAnimation {
   private shipRow: number = 2;
   private shipDir: number = 1;
+  private shipPause: number = 0;
   private aliens: Set<string> = new Set();
   private alienDir: number = -1;
   private alienTimer: number = 0;
+  private alienSpeed: number = 6;
   private bullets: number[][] = []; // [row, col]
   private shootTimer: number = 0;
+  private nextShootAt: number = 3;
+  private burstCount: number = 0;
 
   constructor() {
     this.spawnAliens();
@@ -408,27 +412,57 @@ class InvadersAnimation {
 
   private spawnAliens() {
     this.aliens.clear();
-    for (let r = 0; r < 4; r++) {
-      this.aliens.add(`${r},${W - 1}`);
-      this.aliens.add(`${r},${W - 2}`);
-      this.aliens.add(`${r},${W - 4}`);
-      this.aliens.add(`${r},${W - 5}`);
+    const numCols = 2 + Math.floor(Math.random() * 3); // 2-4 columns
+    const baseCol = W - 1 - Math.floor(Math.random() * 2);
+    for (let i = 0; i < numCols; i++) {
+      const c = baseCol - i * 2;
+      if (c < 4) continue;
+      const numRows = 1 + Math.floor(Math.random() * 3); // 1-3 aliens per column
+      const startRow = Math.floor(Math.random() * (H - numRows + 1));
+      for (let j = 0; j < numRows; j++) {
+        this.aliens.add(`${startRow + j},${c}`);
+      }
     }
+    this.alienSpeed = 5 + Math.floor(Math.random() * 4); // 5-8
+    this.alienDir = -1;
   }
 
   tick(): string {
     this.alienTimer++;
     this.shootTimer++;
 
-    // Ship moves up/down
-    this.shipRow += this.shipDir;
-    if (this.shipRow >= H - 1) this.shipDir = -1;
-    else if (this.shipRow <= 0) this.shipDir = 1;
+    // Ship movement with random pauses and direction changes
+    if (this.shipPause > 0) {
+      this.shipPause--;
+    } else {
+      this.shipRow += this.shipDir;
+      if (this.shipRow >= H - 1) {
+        this.shipDir = -1;
+        this.shipPause = Math.floor(Math.random() * 3);
+      } else if (this.shipRow <= 0) {
+        this.shipDir = 1;
+        this.shipPause = Math.floor(Math.random() * 3);
+      }
+      // Random direction change
+      if (Math.random() < 0.1) {
+        this.shipDir *= -1;
+        this.shipPause = Math.floor(Math.random() * 2);
+      }
+    }
 
-    // Auto-shoot right
-    if (this.shootTimer >= 3) {
-      this.shootTimer = 0;
+    // Auto-shoot with randomized interval and occasional burst
+    if (this.burstCount > 0) {
+      this.burstCount--;
       this.bullets.push([this.shipRow, 2]);
+      if (this.burstCount === 0) this.shootTimer = 0;
+    } else if (this.shootTimer >= this.nextShootAt) {
+      this.shootTimer = 0;
+      this.nextShootAt = 2 + Math.floor(Math.random() * 4); // 2-5
+      this.bullets.push([this.shipRow, 2]);
+      // Chance of burst fire
+      if (Math.random() < 0.2) {
+        this.burstCount = 1 + Math.floor(Math.random() * 2);
+      }
     }
 
     // Move bullets right
@@ -447,7 +481,7 @@ class InvadersAnimation {
     this.bullets = newBullets;
 
     // Move aliens
-    if (this.alienTimer >= 6) {
+    if (this.alienTimer >= this.alienSpeed) {
       this.alienTimer = 0;
       if (this.aliens.size > 0) {
         let minC = W, maxC = 0;
@@ -530,6 +564,58 @@ class InvadersAnimation {
   }
 }
 
+// ─── 6. Heart Animation (heartbeat, 16x4 single-line) ──────────────
+
+const HEART_NORMAL = new Set([
+  "0,2","0,3","0,7","0,8",
+  "1,1","1,2","1,3","1,4","1,5","1,6","1,7","1,8","1,9",
+  "2,2","2,3","2,4","2,5","2,6","2,7",
+  "3,4","3,5",
+]);
+
+const HEART_CONTRACT = new Set([
+  "0,3","0,7",
+  "1,2","1,3","1,4","1,5","1,6","1,7","1,8",
+  "2,3","2,4","2,5","2,6",
+  "3,4",
+]);
+
+const HEART_EXPAND = new Set([
+  "0,1","0,2","0,3","0,4","0,6","0,7","0,8","0,9",
+  "1,0","1,1","1,2","1,3","1,4","1,5","1,6","1,7","1,8","1,9","1,10",
+  "2,1","2,2","2,3","2,4","2,5","2,6","2,7","2,8",
+  "3,3","3,4","3,5","3,6",
+]);
+
+// 6-frame cycle: normal(2) → contract(1) → expand(1) → normal(2)
+const HEART_TIMING = [0, 0, 1, 2, 0, 0];
+const HEART_FRAMES = [HEART_NORMAL, HEART_CONTRACT, HEART_EXPAND];
+
+class HeartAnimation {
+  private phase = 0;
+
+  tick(): string {
+    this.phase++;
+    const frameIdx = HEART_TIMING[this.phase % HEART_TIMING.length];
+    const pixels = HEART_FRAMES[frameIdx];
+    const RED = "\x1b[38;5;196m";
+
+    const parts: string[] = [];
+    for (let cx = 0; cx < W; cx += 2) {
+      let val = 0;
+      for (let r = 0; r < H; r++) {
+        for (let c = 0; c < 2; c++) {
+          if (pixels.has(`${r},${cx + c}`)) val |= DOT_MAP[`${r},${c}`];
+        }
+      }
+      const ch = String.fromCharCode(BRAILLE_OFFSET + val);
+      if (val === 0) parts.push(EMPTY_BRAILLE);
+      else parts.push(`${RED}${ch}${RESET}`);
+    }
+    return parts.join("");
+  }
+}
+
 // ─── 5. Cat Animation (SVG-converted 5-frame pixel, pure yellow) ──
 
 const CAT_YELLOW = "\x1b[38;5;226m";
@@ -605,7 +691,7 @@ class CatAnimation {
 
 // ─── Animation Engine ───────────────────────────────────────────────
 
-type AnimType = "snake" | "breakout" | "pacman" | "equalizer" | "invaders" | "cat";
+type AnimType = "snake" | "breakout" | "pacman" | "equalizer" | "invaders" | "heart" | "cat";
 
 const ANIM_LIST: { id: AnimType; label: string }[] = [
   { id: "snake", label: "Snake 🐍" },
@@ -613,6 +699,7 @@ const ANIM_LIST: { id: AnimType; label: string }[] = [
   { id: "pacman", label: "Pac-Man 👾" },
   { id: "equalizer", label: "Equalizer 📊" },
   { id: "invaders", label: "Invaders 🛸" },
+  { id: "heart", label: "Heart ❤️" },
   { id: "cat", label: "Cat 🐱" },
 ];
 
@@ -622,6 +709,7 @@ const ANIM_INTERVALS: Record<AnimType, number> = {
   pacman: 140,
   equalizer: 150,
   invaders: 120,
+  heart: 200,
   cat: 160,
 };
 
@@ -640,6 +728,7 @@ function createAnimation(type: AnimType): { tick: () => string } {
     case "pacman": return new PacManAnimation();
     case "equalizer": return new EqualizerAnimation();
     case "invaders": return new InvadersAnimation();
+    case "heart": return new HeartAnimation();
     case "cat": return new CatAnimation();
   }
 }
@@ -755,7 +844,7 @@ export default function (pi: ExtensionAPI) {
   };
 
   pi.registerCommand("indicator", {
-    description: "Switch animation: /indicator [snake|breakout|pacman|equalizer|invaders|cat]",
+    description: "Switch animation: /indicator [snake|breakout|pacman|equalizer|invaders|heart|cat]",
     handler: cmdHandler,
   });
 }

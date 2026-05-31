@@ -363,66 +363,59 @@ class CatAnimation:
         return "\n".join(lines)
 
 
-# ─── 6. Heart Animation (pulsing heart, 16x8 two-line) ─────────────
+# ─── 6. Heart Animation (heartbeat, 16x4 single-line) ──────────────
+
+HEART_NORMAL = frozenset({
+    (0, 2), (0, 3), (0, 7), (0, 8),
+    (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9),
+    (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7),
+    (3, 4), (3, 5),
+})
+
+HEART_CONTRACT = frozenset({
+    (0, 3), (0, 7),
+    (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8),
+    (2, 3), (2, 4), (2, 5), (2, 6),
+    (3, 4),
+})
+
+HEART_EXPAND = frozenset({
+    (0, 1), (0, 2), (0, 3), (0, 4), (0, 6), (0, 7), (0, 8), (0, 9),
+    (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9), (1, 10),
+    (2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7), (2, 8),
+    (3, 3), (3, 4), (3, 5), (3, 6),
+})
+
+# 6-frame cycle: normal(2) → contract(1) → expand(1) → normal(2)
+HEART_TIMING = [0, 0, 1, 2, 0, 0]
+HEART_FRAMES = [HEART_NORMAL, HEART_CONTRACT, HEART_EXPAND]
+
 
 class HeartAnimation:
-    """Pulsing heart with lub-dub rhythm."""
-
-    FRAMES = [
-        # small (rest)
-        frozenset({
-            (2, 4), (2, 5), (2, 9), (2, 10),
-            (3, 3), (3, 4), (3, 5), (3, 6), (3, 7), (3, 8), (3, 9), (3, 10), (3, 11),
-            (4, 4), (4, 5), (4, 6), (4, 7), (4, 8), (4, 9), (4, 10),
-            (5, 5), (5, 6), (5, 7), (5, 8), (5, 9),
-            (6, 6), (6, 7), (6, 8),
-            (7, 7),
-        }),
-        # big (beat)
-        frozenset({
-            (1, 3), (1, 4), (1, 5), (1, 9), (1, 10), (1, 11),
-            (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7),
-            (2, 8), (2, 9), (2, 10), (2, 11), (2, 12),
-            (3, 2), (3, 3), (3, 4), (3, 5), (3, 6), (3, 7),
-            (3, 8), (3, 9), (3, 10), (3, 11), (3, 12),
-            (4, 3), (4, 4), (4, 5), (4, 6), (4, 7), (4, 8), (4, 9), (4, 10), (4, 11),
-            (5, 4), (5, 5), (5, 6), (5, 7), (5, 8), (5, 9), (5, 10),
-            (6, 5), (6, 6), (6, 7), (6, 8), (6, 9),
-            (7, 6), (7, 7), (7, 8),
-        }),
-    ]
-    # lub-dub pattern: rest, beat, rest, beat(smaller), rest...
-    TIMING = [0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
+    """Pulsing heart with heartbeat rhythm on a 16x4 single-line canvas."""
 
     def __init__(self):
         self.phase = 0
 
     def tick(self):
         self.phase += 1
-        frame_idx = self.TIMING[self.phase % len(self.TIMING)]
-        pixels = self.FRAMES[frame_idx]
-
+        frame_idx = HEART_TIMING[self.phase % len(HEART_TIMING)]
+        pixels = HEART_FRAMES[frame_idx]
         RED = "\x1b[38;5;196m"
-        PINK = "\x1b[38;5;213m"
 
-        lines = []
-        for half in range(2):
-            parts = []
-            for cx in range(0, W, 2):
-                val = 0
-                for r in range(4):
-                    for c in range(2):
-                        gk = (r + half * 4, cx + c)
-                        if gk in pixels:
-                            val |= DOT_MAP[(r, c)]
-                ch = chr_braille(val)
-                if val == 0:
-                    parts.append(EMPTY_BRAILLE)
-                else:
-                    color = PINK if half == 0 else RED
-                    parts.append(f"{color}{ch}{RESET}")
-            lines.append("".join(parts))
-        return "\n".join(lines)
+        parts = []
+        for cx in range(0, W, 2):
+            val = 0
+            for r in range(H):
+                for c in range(2):
+                    if (r, cx + c) in pixels:
+                        val |= DOT_MAP[(r, c)]
+            ch = chr_braille(val)
+            if val == 0:
+                parts.append(EMPTY_BRAILLE)
+            else:
+                parts.append(f"{RED}{ch}{RESET}")
+        return "".join(parts)
 
 
 # ─── 7. Wave Animation (flowing sine, 16x8 two-line) ───────────────
@@ -578,34 +571,64 @@ class InvadersAnimation:
     def __init__(self):
         self.ship_row = 2
         self.ship_dir = 1
+        self.ship_pause = 0
         self.aliens = set()
         self.alien_dir = -1
         self.alien_timer = 0
+        self.alien_speed = 6
         self.bullets = []
         self.shoot_timer = 0
+        self.next_shoot_at = 3
+        self.burst_count = 0
         self._spawn_aliens()
 
     def _spawn_aliens(self):
         self.aliens.clear()
-        for r in range(4):
-            self.aliens.add(f"{r},{W-1}")
-            self.aliens.add(f"{r},{W-2}")
-            self.aliens.add(f"{r},{W-4}")
-            self.aliens.add(f"{r},{W-5}")
+        num_cols = random.randint(2, 4)
+        base_col = W - 1 - random.randint(0, 1)
+        for i in range(num_cols):
+            c = base_col - i * 2
+            if c < 4:
+                continue
+            num_rows = random.randint(1, 3)
+            start_row = random.randint(0, H - num_rows)
+            for j in range(num_rows):
+                self.aliens.add(f"{start_row + j},{c}")
+        self.alien_speed = random.randint(5, 8)
+        self.alien_dir = -1
 
     def tick(self):
         self.alien_timer += 1
         self.shoot_timer += 1
 
-        # Ship moves up/down
-        self.ship_row += self.ship_dir
-        if self.ship_row >= H - 1: self.ship_dir = -1
-        elif self.ship_row <= 0: self.ship_dir = 1
+        # Ship movement with random pauses and direction changes
+        if self.ship_pause > 0:
+            self.ship_pause -= 1
+        else:
+            self.ship_row += self.ship_dir
+            if self.ship_row >= H - 1:
+                self.ship_dir = -1
+                self.ship_pause = random.randint(0, 2)
+            elif self.ship_row <= 0:
+                self.ship_dir = 1
+                self.ship_pause = random.randint(0, 2)
+            # Random direction change
+            if random.random() < 0.1:
+                self.ship_dir *= -1
+                self.ship_pause = random.randint(0, 1)
 
-        # Auto-shoot right
-        if self.shoot_timer >= 3:
-            self.shoot_timer = 0
+        # Auto-shoot with randomized interval and burst
+        if self.burst_count > 0:
+            self.burst_count -= 1
             self.bullets.append([self.ship_row, 2])
+            if self.burst_count == 0:
+                self.shoot_timer = 0
+        elif self.shoot_timer >= self.next_shoot_at:
+            self.shoot_timer = 0
+            self.next_shoot_at = random.randint(2, 5)
+            self.bullets.append([self.ship_row, 2])
+            if random.random() < 0.2:
+                self.burst_count = random.randint(1, 2)
 
         # Move bullets right
         new_bullets = []
@@ -620,14 +643,13 @@ class InvadersAnimation:
         self.bullets = new_bullets
 
         # Move aliens
-        if self.alien_timer >= 6:
+        if self.alien_timer >= self.alien_speed:
             self.alien_timer = 0
             if self.aliens:
                 min_c = min(int(k.split(",")[1]) for k in self.aliens)
                 max_c = max(int(k.split(",")[1]) for k in self.aliens)
                 new_aliens = set()
                 shift_v = False
-
                 if self.alien_dir < 0 and min_c <= 4:
                     self.alien_dir = 1; shift_v = True
                 elif self.alien_dir > 0 and max_c >= W - 1:
@@ -686,7 +708,7 @@ ANIM_DEFS = [
     ("pacman",     "Pac-Man 👾",    PacManAnimation,     0.140),
     ("equalizer",  "Equalizer 📊",  EqualizerAnimation,  0.150),
     ("cat",        "Cat 🐱",        CatAnimation,        0.160),
-    ("heart",      "Heart ❤️",      HeartAnimation,      0.140),
+    ("heart",      "Heart ❤️",      HeartAnimation,      0.200),
     ("wave",       "Wave 🌊",       WaveAnimation,       0.120),
     ("fireworks",  "Fireworks 🎆",  FireworksAnimation,  0.100),
     ("invaders",   "Invaders 🛸",   InvadersAnimation,   0.120),
