@@ -301,14 +301,37 @@ class EqualizerAnimation:
 # ─── 5. Cat Animation (cute cat face, 16x8 two-line) ────────────────
 
 class CatAnimation:
+    # States: eyes_center, look_left, eyes_center, look_right,
+    #         blink, eyes_center, sleepy, yawn, eyes_center, ear_twitch, blink
+    CYCLE = [
+        ("center", 12),
+        ("left",   6),
+        ("center", 10),
+        ("right",  6),
+        ("center", 8),
+        ("blink",  2),
+        ("center", 12),
+        ("sleepy", 8),
+        ("yawn",   6),
+        ("center", 10),
+        ("twitch", 6),
+        ("center", 8),
+        ("blink",  2),
+    ]
+
     def __init__(self):
         self.timer = 0
-        self.cycle_idx = 0
-        self.cycle = [18, 3, 18, 3]
-        self.states = ["open", "blink", "open", "blink"]
+        self.idx = 0
 
-    def _make_face(self, blink=False):
+    def tick(self):
+        state, dur = self.CYCLE[self.idx]
+        self.timer += 1
+        if self.timer >= dur:
+            self.timer = 0
+            self.idx = (self.idx + 1) % len(self.CYCLE)
+
         cat = set()
+        # Ears
         cat.update([(0,3),(0,4),(0,11),(0,12)])
         cat.update([(1,2),(1,3),(1,4),(1,5),(1,10),(1,11),(1,12),(1,13)])
         for c in range(2,14): cat.add((2,c))
@@ -318,30 +341,45 @@ class CatAnimation:
         for c in range(3,13): cat.add((6,c))
         for c in range(4,12): cat.add((7,c))
 
-        left_eye = {(3,5),(3,6),(4,5),(4,6)}
-        right_eye = {(3,9),(3,10),(4,9),(4,10)}
+        # Eyes (2x2 each, default = center = full gap)
+        le = {(3,5),(3,6),(4,5),(4,6)}
+        re = {(3,9),(3,10),(4,9),(4,10)}
         nose = {(5,7),(5,8)}
-        cat -= left_eye; cat -= right_eye; cat -= nose
+        cat -= nose
         cat.discard((6,7)); cat.discard((6,8))
 
-        eyes = set() if blink else (left_eye | right_eye)
-        if blink: cat.update(left_eye | right_eye)
-        return cat, eyes, nose
+        eyes = set()
 
-    def tick(self):
-        self.timer += 1
-        if self.timer >= self.cycle[self.cycle_idx]:
-            self.timer = 0
-            self.cycle_idx = (self.cycle_idx + 1) % len(self.cycle)
-
-        state = self.states[self.cycle_idx]
-        cat, eyes, nose = self._make_face(blink=(state == "blink"))
+        if state == "center":
+            cat -= le; cat -= re
+            eyes = le | re
+        elif state == "left":
+            cat -= {(3,5),(4,5)}; cat -= {(3,9),(4,9)}
+            eyes = {(3,5),(4,5),(3,9),(4,9)}
+        elif state == "right":
+            cat -= {(3,6),(4,6)}; cat -= {(3,10),(4,10)}
+            eyes = {(3,6),(4,6),(3,10),(4,10)}
+        elif state == "blink":
+            pass  # eyes stay filled
+        elif state == "sleepy":
+            cat -= {(3,5),(3,6),(3,9),(3,10)}  # only top half gap
+            eyes = {(3,5),(3,6),(3,9),(3,10)}
+        elif state == "yawn":
+            cat -= le; cat -= re
+            eyes = le | re
+            # Wide mouth
+            for c in range(5,11): cat.discard((6,c))
+        elif state == "twitch":
+            cat -= le; cat -= re
+            eyes = le | re
+            # Right ear flat
+            cat.discard((0,11)); cat.discard((1,12)); cat.discard((1,13))
+            cat.add((1,14))
 
         YELLOW = "\x1b[38;5;226m"
         CYAN = "\x1b[38;5;51m"
         PINK = "\x1b[38;5;213m"
 
-        # Render as 2 lines (rows 0-3 and rows 4-7)
         lines = []
         for half in range(2):
             parts = []
