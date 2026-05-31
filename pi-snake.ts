@@ -258,25 +258,32 @@ class PacManAnimation {
   private dots: number[] = []; // column positions of dots
   private spawnTimer: number = 0;
 
-  // Pac-Man shape at col 0-5, facing right
-  // Side view: round body, mouth opens/closes on the RIGHT side
-  // Open:  .████. / ██....█ / ██....█ / .████.
-  // Closed: .████. / ██████ / ██████ / .████.
+  // Pac-Man side view facing right on a 4-row × 6-col grid (col 0-5)
+  // It's a filled circle with a V-shaped mouth gap on the right
+  //
+  // Open mouth:       Closed:
+  //  ··██··            ··██··
+  //  ███··█            ██████
+  //  ███··█            ██████
+  //  ··██··            ··██··
+  //
+  // The mouth is the missing dots on rows 1-2, cols 3-4
   private getPacDots(): Set<string> {
     const s = new Set<string>();
-    // Body (always shown)
-    s.add("0,1"); s.add("0,2"); s.add("0,3"); s.add("0,4");
-    s.add("3,1"); s.add("3,2"); s.add("3,3"); s.add("3,4");
-    s.add("1,0"); s.add("2,0"); // left edge
-    s.add("1,5"); s.add("2,5"); // right edge (back of mouth)
+    // Top curve (row 0) — narrower
+    s.add("0,2"); s.add("0,3");
+    // Bottom curve (row 3) — narrower
+    s.add("3,2"); s.add("3,3");
+    // Left body (rows 1-2)
+    s.add("1,0"); s.add("1,1"); s.add("1,2");
+    s.add("2,0"); s.add("2,1"); s.add("2,2");
+    // Right back edge (rows 1-2, col 5)
+    s.add("1,5"); s.add("2,5");
 
-    if (this.mouthOpen) {
-      // Open: gap in the front-right (cols 2-3 missing on rows 1-2)
-      // mouth is the opening on the right side
-    } else {
-      // Closed: fill the mouth area
-      s.add("1,1"); s.add("1,2"); s.add("1,3"); s.add("1,4");
-      s.add("2,1"); s.add("2,2"); s.add("2,3"); s.add("2,4");
+    if (!this.mouthOpen) {
+      // Closed: fill the mouth gap (cols 3-4 on rows 1-2)
+      s.add("1,3"); s.add("1,4");
+      s.add("2,3"); s.add("2,4");
     }
     return s;
   }
