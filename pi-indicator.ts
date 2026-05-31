@@ -564,32 +564,32 @@ class InvadersAnimation {
   }
 }
 
-// ─── 6. Heart Animation (heartbeat, 16x4 single-line) ──────────────
+// ─── 6. Heart Animation (lub-dub heartbeat, 16x8 two-line) ─────────
 
-const HEART_NORMAL = new Set([
-  "0,2","0,3","0,7","0,8",
-  "1,1","1,2","1,3","1,4","1,5","1,6","1,7","1,8","1,9",
+const HEART_SMALL = new Set([
+  "2,4","2,5","2,9","2,10",
+  "3,3","3,4","3,5","3,6","3,7","3,8","3,9","3,10","3,11",
+  "4,4","4,5","4,6","4,7","4,8","4,9","4,10",
+  "5,5","5,6","5,7","5,8","5,9",
+  "6,6","6,7","6,8",
+  "7,7",
+]);
+
+const HEART_BIG = new Set([
+  "1,3","1,4","1,5","1,9","1,10","1,11",
   "2,2","2,3","2,4","2,5","2,6","2,7",
-  "3,4","3,5",
+  "2,8","2,9","2,10","2,11","2,12",
+  "3,2","3,3","3,4","3,5","3,6","3,7",
+  "3,8","3,9","3,10","3,11","3,12",
+  "4,3","4,4","4,5","4,6","4,7","4,8","4,9","4,10","4,11",
+  "5,4","5,5","5,6","5,7","5,8","5,9","5,10",
+  "6,5","6,6","6,7","6,8","6,9",
+  "7,6","7,7","7,8",
 ]);
 
-const HEART_CONTRACT = new Set([
-  "0,3","0,7",
-  "1,2","1,3","1,4","1,5","1,6","1,7","1,8",
-  "2,3","2,4","2,5","2,6",
-  "3,4",
-]);
-
-const HEART_EXPAND = new Set([
-  "0,1","0,2","0,3","0,4","0,6","0,7","0,8","0,9",
-  "1,0","1,1","1,2","1,3","1,4","1,5","1,6","1,7","1,8","1,9","1,10",
-  "2,1","2,2","2,3","2,4","2,5","2,6","2,7","2,8",
-  "3,3","3,4","3,5","3,6",
-]);
-
-// 6-frame cycle: normal(2) → contract(1) → expand(1) → normal(2)
-const HEART_TIMING = [0, 0, 1, 2, 0, 0];
-const HEART_FRAMES = [HEART_NORMAL, HEART_CONTRACT, HEART_EXPAND];
+// lub-dub pattern: rest, beat, rest, beat(smaller), rest...
+const HEART_TIMING = [0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0];
+const HEART_FRAMES = [HEART_SMALL, HEART_BIG];
 
 class HeartAnimation {
   private phase = 0;
@@ -599,20 +599,28 @@ class HeartAnimation {
     const frameIdx = HEART_TIMING[this.phase % HEART_TIMING.length];
     const pixels = HEART_FRAMES[frameIdx];
     const RED = "\x1b[38;5;196m";
+    const PINK = "\x1b[38;5;213m";
 
-    const parts: string[] = [];
-    for (let cx = 0; cx < W; cx += 2) {
-      let val = 0;
-      for (let r = 0; r < H; r++) {
-        for (let c = 0; c < 2; c++) {
-          if (pixels.has(`${r},${cx + c}`)) val |= DOT_MAP[`${r},${c}`];
+    const lines: string[] = [];
+    for (let half = 0; half < 2; half++) {
+      const parts: string[] = [];
+      for (let cx = 0; cx < W; cx += 2) {
+        let val = 0;
+        for (let r = 0; r < 4; r++) {
+          for (let c = 0; c < 2; c++) {
+            if (pixels.has(`${r + half * 4},${cx + c}`)) val |= DOT_MAP[`${r},${c}`];
+          }
+        }
+        const ch = String.fromCharCode(BRAILLE_OFFSET + val);
+        if (val === 0) parts.push(EMPTY_BRAILLE);
+        else {
+          const color = half === 0 ? PINK : RED;
+          parts.push(`${color}${ch}${RESET}`);
         }
       }
-      const ch = String.fromCharCode(BRAILLE_OFFSET + val);
-      if (val === 0) parts.push(EMPTY_BRAILLE);
-      else parts.push(`${RED}${ch}${RESET}`);
+      lines.push(parts.join(""));
     }
-    return parts.join("");
+    return lines.join("\n");
   }
 }
 

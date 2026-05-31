@@ -363,59 +363,66 @@ class CatAnimation:
         return "\n".join(lines)
 
 
-# ─── 6. Heart Animation (heartbeat, 16x4 single-line) ──────────────
-
-HEART_NORMAL = frozenset({
-    (0, 2), (0, 3), (0, 7), (0, 8),
-    (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9),
-    (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7),
-    (3, 4), (3, 5),
-})
-
-HEART_CONTRACT = frozenset({
-    (0, 3), (0, 7),
-    (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8),
-    (2, 3), (2, 4), (2, 5), (2, 6),
-    (3, 4),
-})
-
-HEART_EXPAND = frozenset({
-    (0, 1), (0, 2), (0, 3), (0, 4), (0, 6), (0, 7), (0, 8), (0, 9),
-    (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5), (1, 6), (1, 7), (1, 8), (1, 9), (1, 10),
-    (2, 1), (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7), (2, 8),
-    (3, 3), (3, 4), (3, 5), (3, 6),
-})
-
-# 6-frame cycle: normal(2) → contract(1) → expand(1) → normal(2)
-HEART_TIMING = [0, 0, 1, 2, 0, 0]
-HEART_FRAMES = [HEART_NORMAL, HEART_CONTRACT, HEART_EXPAND]
-
+# ─── 6. Heart Animation (heartbeat, 16x8 two-line) ────────────────
 
 class HeartAnimation:
-    """Pulsing heart with heartbeat rhythm on a 16x4 single-line canvas."""
+    """Pulsing heart with lub-dub rhythm on 16x8 two-line canvas."""
+
+    FRAMES = [
+        # small (rest)
+        frozenset({
+            (2, 4), (2, 5), (2, 9), (2, 10),
+            (3, 3), (3, 4), (3, 5), (3, 6), (3, 7), (3, 8), (3, 9), (3, 10), (3, 11),
+            (4, 4), (4, 5), (4, 6), (4, 7), (4, 8), (4, 9), (4, 10),
+            (5, 5), (5, 6), (5, 7), (5, 8), (5, 9),
+            (6, 6), (6, 7), (6, 8),
+            (7, 7),
+        }),
+        # big (beat)
+        frozenset({
+            (1, 3), (1, 4), (1, 5), (1, 9), (1, 10), (1, 11),
+            (2, 2), (2, 3), (2, 4), (2, 5), (2, 6), (2, 7),
+            (2, 8), (2, 9), (2, 10), (2, 11), (2, 12),
+            (3, 2), (3, 3), (3, 4), (3, 5), (3, 6), (3, 7),
+            (3, 8), (3, 9), (3, 10), (3, 11), (3, 12),
+            (4, 3), (4, 4), (4, 5), (4, 6), (4, 7), (4, 8), (4, 9), (4, 10), (4, 11),
+            (5, 4), (5, 5), (5, 6), (5, 7), (5, 8), (5, 9), (5, 10),
+            (6, 5), (6, 6), (6, 7), (6, 8), (6, 9),
+            (7, 6), (7, 7), (7, 8),
+        }),
+    ]
+    # lub-dub pattern: rest, beat, rest, beat(smaller), rest...
+    TIMING = [0, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]
 
     def __init__(self):
         self.phase = 0
 
     def tick(self):
         self.phase += 1
-        frame_idx = HEART_TIMING[self.phase % len(HEART_TIMING)]
-        pixels = HEART_FRAMES[frame_idx]
-        RED = "\x1b[38;5;196m"
+        frame_idx = self.TIMING[self.phase % len(self.TIMING)]
+        pixels = self.FRAMES[frame_idx]
 
-        parts = []
-        for cx in range(0, W, 2):
-            val = 0
-            for r in range(H):
-                for c in range(2):
-                    if (r, cx + c) in pixels:
-                        val |= DOT_MAP[(r, c)]
-            ch = chr_braille(val)
-            if val == 0:
-                parts.append(EMPTY_BRAILLE)
-            else:
-                parts.append(f"{RED}{ch}{RESET}")
-        return "".join(parts)
+        RED = "\x1b[38;5;196m"
+        PINK = "\x1b[38;5;213m"
+
+        lines = []
+        for half in range(2):
+            parts = []
+            for cx in range(0, W, 2):
+                val = 0
+                for r in range(4):
+                    for c in range(2):
+                        gk = (r + half * 4, cx + c)
+                        if gk in pixels:
+                            val |= DOT_MAP[(r, c)]
+                ch = chr_braille(val)
+                if val == 0:
+                    parts.append(EMPTY_BRAILLE)
+                else:
+                    color = PINK if half == 0 else RED
+                    parts.append(f"{color}{ch}{RESET}")
+            lines.append("".join(parts))
+        return "\n".join(lines)
 
 
 # ─── 7. Wave Animation (flowing sine, 16x8 two-line) ───────────────
