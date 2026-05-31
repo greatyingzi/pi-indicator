@@ -573,37 +573,35 @@ class CatAnimation {
   }
 }
 
-// ─── 7. Racer Animation (colored, smart NPC, 2-lane, 16x8) ──────────
-
-// Player car: fixed green
-const RACER_PLAYER_COLOR = "\x1b[38;5;82m";
-// NPC color palette: red, orange, blue, magenta, yellow, cyan
-const RACER_NPC_PALETTE = [196, 214, 69, 201, 226, 51];
-
-// Car templates: 3 types, facing RIGHT (row, col)
-// Template A (2x4 basic): .##. / ####
-// Template B (2x3 compact): ### / ###
-// Template C (2x5 long): .###. / #####
-const RACER_TEMPLATES: ReadonlyArray<ReadonlySet<string>> = [
-  new Set(["0,1","0,2","1,0","1,1","1,2","1,3"]),
-  new Set(["0,0","0,1","0,2","1,0","1,1","1,2"]),
-  new Set(["0,1","0,2","0,3","1,0","1,1","1,2","1,3","1,4"]),
-];
-const RACER_TEMPLATE_WIDTHS = [4, 3, 5];
+// ─── 7. Racer Animation (Road Fighter, 2-lane, colored, 16x8) ──────
 
 const RACER_PLAYER_COL = 2;
 const RACER_MAX_NPCS = 6;
+const RACER_PLAYER_COLOR = "\x1b[38;5;82m";
 
-function racerLaneOff(lane: number): number { return lane === 0 ? 0 : 4; }
+// NPC type definitions: speed, template key, ANSI 256 color
+const RACER_NPC_DEFS: Record<string, { speed: number; tmpl: string; color: number }> = {
+  gray:   { speed: 0.3, tmpl: "small",    color: 244 },
+  blue:   { speed: 0.5, tmpl: "standard", color: 69 },
+  yellow: { speed: 0.7, tmpl: "standard", color: 226 },
+  red:    { speed: 0.8, tmpl: "standard", color: 196 },
+  truck:  { speed: 0.2, tmpl: "truck",    color: 240 },
+};
 
-function racerTemplatePixels(tmplIdx: number): Set<string> {
-  const w = RACER_TEMPLATE_WIDTHS[tmplIdx];
-  const s = new Set<string>();
-  for (const k of RACER_TEMPLATES[tmplIdx]) {
-    const [r, c] = k.split(",").map(Number);
-    s.add(`${r},${w - 1 - c}`);
-  }
-  return s;
+// Spawn weights: [type, weight]
+const RACER_SPAWN_EARLY: [string, number][] = [["gray",40],["blue",25],["yellow",15],["red",10],["truck",10]];
+const RACER_SPAWN_LATE:  [string, number][] = [["gray",15],["blue",20],["yellow",25],["red",30],["truck",10]];
+
+// Car pixel templates (row,col) — all symmetric so no mirror needed
+const RACER_CAR_TEMPLATES: Record<string, ReadonlySet<string>> = {
+  small:    new Set(["0,0","0,1","0,2","1,0","1,1","1,2"]),
+  standard: new Set(["0,1","0,2","1,0","1,1","1,2","1,3"]),
+  truck:    new Set(["0,1","0,2","0,3","0,4","1,0","1,1","1,2","1,3","1,4","1,5"]),
+};
+const RACER_CAR_WIDTHS: Record<string, number> = { small: 3, standard: 4, truck: 6 };
+
+function racerLaneOff(lane: number): number {
+  return (lane === 0 ? 0 : 4) + 1;
 }
 
 interface RacerNPCData {
@@ -611,84 +609,65 @@ interface RacerNPCData {
   col: number;
   speed: number;
   color: string;
-  aggressive: boolean;
-  tmplIdx: number;
+  npcType: string;
+  tmplKey: string;
   accumulator: number;
-  pixelsTmpl: Set<string>;
-}
-
-function createNPC(lane: number, col: number, speed: number, colorCode: number,
-                   aggressive: boolean, tmplIdx: number): RacerNPCData {
-  return {
-    lane, col, speed,
-    color: `\x1b[38;5;${colorCode}m`,
-    aggressive, tmplIdx,
-    accumulator: 0,
-    pixelsTmpl: racerTemplatePixels(tmplIdx),
-  };
+  weaveTimer: number;
+  weaveInterval: number;
+  chaseCooldown: number;
 }
 
 class RacerAnimation {
   private playerLane = 0;
   private npcs: RacerNPCData[] = [];
-  private overtakes = 0;
   private spawnTimer = 0;
   private ticks = 0;
-  private playerTmpl = 0;
 
-  private laneOff(lane: number): number { return lane === 0 ? 0 : 4; }
-
-  private playerPixels(): Set<string> {
-    const off = this.laneOff(this.playerLane);
-    const s = new Set<string>();
-    for (const k of RACER_TEMPLATES[this.playerTmpl]) {
-      const [r, c] = k.split(",").map(Number);
-      s.add(`${r + off + 1},${RACER_PLAYER_COL + c}`);
-    }
-    return s;
-  }
-
-  private npcPixels(npc: RacerNPCData): Set<string> {
-    const off = this.laneOff(npc.lane);
-    const colI = Math.round(npc.col);
-    const s = new Set<string>();
-    for (const k of npc.pixelsTmpl) {
-      const [r, c] = k.split(",").map(Number);
-      s.add(`${r + off + 1},${colI + c}`);
-    }
-    return s;
-  }
-
-  private npcWidth(npc: RacerNPCData): number {
-    return RACER_TEMPLATE_WIDTHS[npc.tmplIdx];
-  }
-
-  private playerWidth(): number {
-    return RACER_TEMPLATE_WIDTHS[this.playerTmpl];
-  }
-
-  private difficultyFactor(): number {
+  private difficulty(): number {
     return Math.min(this.ticks / 500, 1.0);
+  }
+
+  private pickNpcType(): string {
+    const diff = this.difficulty();
+    const lateDict = new Map<string, number>(RACER_SPAWN_LATE);
+    const weights: Record<string, number> = {};
+    for (const [name, earlyW] of RACER_SPAWN_EARLY) {
+      const lateW = lateDict.get(name)!;
+      weights[name] = earlyW + (lateW - earlyW) * diff;
+    }
+    const total = Object.values(weights).reduce((a, b) => a + b, 0);
+    let r = Math.random() * total;
+    for (const [name, w] of Object.entries(weights)) {
+      r -= w;
+      if (r <= 0) return name;
+    }
+    return "gray";
   }
 
   private spawnNPC(): void {
     const lane = Math.floor(Math.random() * 2);
-    if (this.npcs.some(n => n.lane === lane && n.col >= W - 2)) return;
-    const diff = this.difficultyFactor();
-    const speed = 0.5 + Math.random() * (0.5 + diff * 1.0);
-    const colorCode = RACER_NPC_PALETTE[Math.floor(Math.random() * RACER_NPC_PALETTE.length)];
-    const aggressive = Math.random() < (0.3 + diff * 0.3);
-    const tmplIdx = Math.floor(Math.random() * 3);
-    this.npcs.push(createNPC(lane, W + 1, speed, colorCode, aggressive, tmplIdx));
+    if (this.npcs.some(n => n.lane === lane && n.col >= W - 6)) return;
+    const npcType = this.pickNpcType();
+    const def = RACER_NPC_DEFS[npcType];
+    this.npcs.push({
+      lane, col: W + 1,
+      speed: def.speed,
+      color: `\x1b[38;5;${def.color}m`,
+      npcType, tmplKey: def.tmpl,
+      accumulator: 0,
+      weaveTimer: 0,
+      weaveInterval: 3 + Math.floor(Math.random() * 3),
+      chaseCooldown: 0,
+    });
   }
 
   tick(): string {
     this.ticks++;
-    const diff = this.difficultyFactor();
-    const pw = this.playerWidth();
+    const diff = this.difficulty();
     const pc = RACER_PLAYER_COL;
+    const pw = RACER_CAR_WIDTHS["standard"];
 
-    // ── Spawn NPCs ──
+    // ── Spawn ──
     this.spawnTimer++;
     const baseInterval = Math.max(4, 12 - Math.floor(diff * 6));
     if (this.spawnTimer >= baseInterval && this.npcs.length < RACER_MAX_NPCS) {
@@ -699,7 +678,7 @@ class RacerAnimation {
       }
     }
 
-    // ── Move NPCs (sub-frame accumulator) ──
+    // ── Move NPCs (sub-pixel accumulator) ──
     for (const npc of this.npcs) {
       npc.accumulator += npc.speed;
       while (npc.accumulator >= 1.0) {
@@ -708,141 +687,117 @@ class RacerAnimation {
       }
     }
 
-    // ── NPC Intelligence ──
+    // ── NPC AI (per-type behaviour) ──
     for (const npc of this.npcs) {
-      const nw = this.npcWidth(npc);
-      const colI = Math.round(npc.col);
-      const otherLane = 1 - npc.lane;
-
-      // Check for collision ahead (same lane)
-      let blockedAhead = false;
-      for (const other of this.npcs) {
-        if (other === npc) continue;
-        if (other.lane !== npc.lane) continue;
-        const ow = this.npcWidth(other);
-        const oc = Math.round(other.col);
-        if (oc < colI && colI - (oc + ow) < 3) {
-          blockedAhead = true;
-          break;
-        }
-      }
-
-      // Aggressive: try to block player
-      if (npc.aggressive && !blockedAhead) {
-        if (this.playerLane === npc.lane && colI > pc + pw) {
-          // Player behind in same lane, stay
-        } else if (this.playerLane !== npc.lane && colI > pc) {
-          // Player in other lane behind — switch to block
-          let safe = true;
-          for (const other of this.npcs) {
-            if (other === npc) continue;
-            if (other.lane !== otherLane) continue;
-            const oc = Math.round(other.col);
-            const ow2 = this.npcWidth(other);
-            if (!(colI + nw <= oc || colI >= oc + ow2)) { safe = false; break; }
+      if (npc.npcType === "blue") {
+        // Dodge: player approaching in same lane → switch lane
+        const colI = Math.round(npc.col);
+        if (npc.lane === this.playerLane) {
+          const dist = colI - (pc + pw);
+          if (dist >= 0 && dist < 6) {
+            npc.lane = 1 - npc.lane;
           }
-          if (safe) npc.lane = otherLane;
+        }
+      } else if (npc.npcType === "yellow") {
+        // Weaver: periodically auto-switch lanes (S-curve)
+        npc.weaveTimer++;
+        if (npc.weaveTimer >= npc.weaveInterval) {
+          npc.weaveTimer = 0;
+          npc.weaveInterval = 3 + Math.floor(Math.random() * 3);
+          npc.lane = 1 - npc.lane;
+        }
+      } else if (npc.npcType === "red") {
+        // Chaser: actively track the player's lane
+        if (npc.chaseCooldown > 0) npc.chaseCooldown--;
+        if (npc.lane !== this.playerLane && npc.chaseCooldown === 0) {
+          npc.lane = this.playerLane;
+          npc.chaseCooldown = 5;
         }
       }
-
-      // Avoidance: if blocked ahead, try to switch lanes
-      if (blockedAhead) {
-        let safe = true;
-        for (const other of this.npcs) {
-          if (other === npc) continue;
-          if (other.lane !== otherLane) continue;
-          const oc = Math.round(other.col);
-          const ow2 = this.npcWidth(other);
-          if (!(colI + nw <= oc || colI >= oc + ow2)) { safe = false; break; }
-        }
-        if (safe && !(colI + nw <= pc || colI >= pc + pw)) safe = false;
-        if (safe) npc.lane = otherLane;
-      }
+      // gray & truck: straight line, never change lane
     }
 
-    // ── Remove off-screen NPCs ──
-    const survived: RacerNPCData[] = [];
-    for (const npc of this.npcs) {
-      const nw = this.npcWidth(npc);
-      if (npc.col < -(nw + 2)) this.overtakes++;
-      else survived.push(npc);
-    }
-    this.npcs = survived;
+    // ── Remove off-screen ──
+    this.npcs = this.npcs.filter(n => n.col > -(RACER_CAR_WIDTHS[n.tmplKey] + 2));
 
     // ── Player AI ──
     const LOOKAHEAD = 14;
 
-    const laneClearance = (lane: number): [number, boolean] => {
-      let best = LOOKAHEAD + 1;
-      let hasAggressive = false;
+    const laneScore = (lane: number): number => {
+      let minDist = LOOKAHEAD + 1;
+      let threat = 0;
       for (const npc of this.npcs) {
         if (npc.lane !== lane) continue;
-        const nw2 = this.npcWidth(npc);
-        const colI2 = Math.round(npc.col);
-        const frontGap = colI2 - (pc + pw);
-        if (frontGap >= 0 && frontGap < best) best = frontGap;
-        if (npc.aggressive && colI2 > pc) hasAggressive = true;
+        const colI = Math.round(npc.col);
+        const nw = RACER_CAR_WIDTHS[npc.tmplKey];
+        const gap = colI - (pc + pw);
+        if (gap >= 0 && gap < minDist) minDist = gap;
+        if (npc.npcType === "red" && colI > pc - 2) threat += 4;
+        if (npc.npcType === "yellow" && colI > pc) threat += 2;
+        if (npc.npcType === "truck" && colI > pc) threat += 1;
       }
-      return [best, hasAggressive];
+      return minDist - threat;
     };
 
-    const [curClear, curAggro] = laneClearance(this.playerLane);
-    const other = 1 - this.playerLane;
-    const [otherClear, otherAggro] = laneClearance(other);
+    const curScore = laneScore(this.playerLane);
+    const otherLane = 1 - this.playerLane;
+    const otherScore = laneScore(otherLane);
 
     const laneSafe = (lane: number): boolean => {
       for (const npc of this.npcs) {
         if (npc.lane !== lane) continue;
-        const nw2 = this.npcWidth(npc);
-        const colI2 = Math.round(npc.col);
-        if (!(colI2 + nw2 <= pc || colI2 >= pc + pw)) return false;
+        const colI = Math.round(npc.col);
+        const nw = RACER_CAR_WIDTHS[npc.tmplKey];
+        if (!(colI + nw <= pc || colI >= pc + pw)) return false;
       }
       return true;
     };
 
-    const otherSafe = laneSafe(other);
-    if (otherSafe) {
-      const curScore = curClear - (curAggro ? 3 : 0);
-      const otherScore = otherClear - (otherAggro ? 3 : 0);
-      if (otherScore > curScore + 1) this.playerLane = other;
+    if (laneSafe(otherLane) && otherScore > curScore) {
+      this.playerLane = otherLane;
     }
 
-    // ── Collision Detection ──
-    const pSet = this.playerPixels();
-    for (const npc of this.npcs) {
-      const nSet = this.npcPixels(npc);
-      let hit = false;
-      for (const k of nSet) { if (pSet.has(k)) { hit = true; break; } }
-      if (hit) {
-        this.npcs = [];
-        this.overtakes = Math.max(0, this.overtakes - 3);
-        break;
-      }
+    // ── Collision (player ↔ NPC only) ──
+    const pOff = racerLaneOff(this.playerLane);
+    const playerSet = new Set<string>();
+    for (const k of RACER_CAR_TEMPLATES["standard"]) {
+      const [r, c] = k.split(",").map(Number);
+      playerSet.add(`${r + pOff},${pc + c}`);
     }
+
+    this.npcs = this.npcs.filter(npc => {
+      const nOff = racerLaneOff(npc.lane);
+      const colI = Math.round(npc.col);
+      for (const k of RACER_CAR_TEMPLATES[npc.tmplKey]) {
+        const [r, c] = k.split(",").map(Number);
+        if (playerSet.has(`${r + nOff},${colI + c}`)) return false;
+      }
+      return true;
+    });
 
     // ── Render ──
     const colorMap = new Map<string, string>();
 
-    // Player car pixels
-    const pOff = this.laneOff(this.playerLane);
-    for (const k of RACER_TEMPLATES[this.playerTmpl]) {
+    // Player pixels (green)
+    const pOff2 = racerLaneOff(this.playerLane);
+    for (const k of RACER_CAR_TEMPLATES["standard"]) {
       const [r, c] = k.split(",").map(Number);
-      const ar = r + pOff + 1, ac = pc + c;
-      if (ac >= 0 && ac < W) colorMap.set(`${ar},${ac}`, RACER_PLAYER_COLOR);
+      const ac = pc + c;
+      if (ac >= 0 && ac < W) colorMap.set(`${r + pOff2},${ac}`, RACER_PLAYER_COLOR);
     }
 
-    // NPC car pixels
+    // NPC pixels
     for (const npc of this.npcs) {
-      const off = this.laneOff(npc.lane);
+      const off = racerLaneOff(npc.lane);
       const colI = Math.round(npc.col);
-      for (const k of npc.pixelsTmpl) {
+      for (const k of RACER_CAR_TEMPLATES[npc.tmplKey]) {
         const [r, c] = k.split(",").map(Number);
-        const ar = r + off + 1, ac = colI + c;
-        if (ac >= 0 && ac < W) colorMap.set(`${ar},${ac}`, npc.color);
+        const ac = colI + c;
+        if (ac >= 0 && ac < W) colorMap.set(`${r + off},${ac}`, npc.color);
       }
     }
 
-    // Braille render with color (two lines)
+    // Braille render with colour (two lines)
     const lines: string[] = [];
     for (let half = 0; half < 2; half++) {
       const parts: string[] = [];

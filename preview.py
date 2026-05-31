@@ -556,269 +556,237 @@ class InvadersAnimation:
         return to_braille(grid)
 
 
-# ─── 10. Racer Animation (horizontal 2-lane, colored, smart NPC, 16x8) ──
-
-# Player car: fixed green
-RACER_PLAYER_COLOR = "\x1b[38;5;82m"
-# NPC color palette: red, orange, blue, magenta, yellow, cyan
-RACER_NPC_PALETTE = [196, 214, 69, 201, 226, 51]
-
-# Car templates: 3 types (row, col) pixel sets, facing RIGHT
-RACER_TEMPLATES = [
-    # Template A (2x4 basic): .##. / ####
-    frozenset({(0,1),(0,2),(1,0),(1,1),(1,2),(1,3)}),
-    # Template B (2x3 compact): ### / ###
-    frozenset({(0,0),(0,1),(0,2),(1,0),(1,1),(1,2)}),
-    # Template C (2x5 long): .###. / #####
-    frozenset({(0,1),(0,2),(0,3),(1,0),(1,1),(1,2),(1,3),(1,4)}),
-]
-# Template widths
-RACER_TEMPLATE_WIDTHS = [4, 3, 5]
+# ─── 10. Racer Animation (Road Fighter, 2-lane, colored, 16x8) ──
 
 RACER_PLAYER_COL = 2
 RACER_MAX_NPCS = 6
+RACER_PLAYER_COLOR = "\x1b[38;5;82m"
+
+# NPC type definitions: speed, template key, ANSI 256 color
+RACER_NPC_DEFS = {
+    'gray':   {'speed': 0.3, 'tmpl': 'small',    'color': 244},
+    'blue':   {'speed': 0.5, 'tmpl': 'standard',  'color': 69},
+    'yellow': {'speed': 0.7, 'tmpl': 'standard',  'color': 226},
+    'red':    {'speed': 0.8, 'tmpl': 'standard',  'color': 196},
+    'truck':  {'speed': 0.2, 'tmpl': 'truck',     'color': 240},
+}
+
+# Spawn weights: (type, early_weight)
+RACER_SPAWN_EARLY = [('gray', 40), ('blue', 25), ('yellow', 15), ('red', 10), ('truck', 10)]
+RACER_SPAWN_LATE  = [('gray', 15), ('blue', 20), ('yellow', 25), ('red', 30), ('truck', 10)]
+
+# Car pixel templates (row, col) — all symmetric so no mirror needed
+RACER_CAR_TEMPLATES = {
+    'small':    frozenset({(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)}),
+    'standard': frozenset({(0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (1, 3)}),
+    'truck':    frozenset({(0, 1), (0, 2), (0, 3), (0, 4),
+                           (1, 0), (1, 1), (1, 2), (1, 3), (1, 4), (1, 5)}),
+}
+RACER_CAR_WIDTHS = {'small': 3, 'standard': 4, 'truck': 6}
+
 
 def _racer_lane_off(lane):
-    return 0 if lane == 0 else 4
-
-def _racer_template_pixels(tmpl_idx):
-    """Return pixels for template, mirrored LEFT (col → width-1-col)."""
-    w = RACER_TEMPLATE_WIDTHS[tmpl_idx]
-    return frozenset((r, w - 1 - c) for r, c in RACER_TEMPLATES[tmpl_idx])
-
-def _racer_car_pixels(lane, col, tmpl_idx, mirror=False, row_pad=1):
-    """Get absolute pixel set for a car at (lane, col)."""
-    off = _racer_lane_off(lane)
-    tmpl = RACER_TEMPLATES[tmpl_idx] if not mirror else _racer_template_pixels(tmpl_idx)
-    return frozenset((r + off + row_pad, col + c) for r, c in tmpl)
+    """Row offset for a 2-row car centered in a 4-row lane."""
+    return (0 if lane == 0 else 4) + 1
 
 
 class RacerNPC:
-    """A single NPC car with independent properties."""
-    __slots__ = ('lane', 'col', 'speed', 'color', 'aggressive', 'tmpl_idx',
-                 'accumulator', 'pixels_tmpl')
+    """NPC car with Road Fighter–style AI behaviour."""
+    __slots__ = ('lane', 'col', 'speed', 'color', 'npc_type', 'tmpl_key',
+                 'accumulator', 'weave_timer', 'weave_interval', 'chase_cooldown')
 
-    def __init__(self, lane, col, speed, color_code, aggressive, tmpl_idx):
+    def __init__(self, lane, col, npc_type):
         self.lane = lane
         self.col = float(col)
-        self.speed = speed
-        self.color = f"\x1b[38;5;{color_code}m"
-        self.aggressive = aggressive
-        self.tmpl_idx = tmpl_idx
+        self.npc_type = npc_type
+        defn = RACER_NPC_DEFS[npc_type]
+        self.speed = defn['speed']
+        self.color = f"\x1b[38;5;{defn['color']}m"
+        self.tmpl_key = defn['tmpl']
         self.accumulator = 0.0
-        self.pixels_tmpl = _racer_template_pixels(tmpl_idx)  # facing left
+        self.weave_timer = 0
+        self.weave_interval = random.randint(3, 5)
+        self.chase_cooldown = 0
 
 
 class RacerAnimation:
-    """Side-scrolling 2-lane racer on 16x8 canvas (two braille lines).
-    Colored, smart NPCs with variable speed, aggressive behavior.
+    """Road Fighter–style 2-lane racer on 16×8 canvas (two braille lines).
+    5 NPC types: gray (slow), blue (dodge), yellow (weaver),
+                 red (chaser), truck (obstacle).
+    NPC–NPC collisions are ignored; only player–NPC matters.
     """
 
     def __init__(self):
         self.player_lane = 0
-        self.npcs = []
-        self.overtakes = 0
-        self.spawn_timer = 0.0
+        self.npcs: list[RacerNPC] = []
+        self.spawn_timer = 0
         self.ticks = 0
-        self.player_tmpl = 0  # player always uses template A
 
-    def _lane_off(self, lane):
-        return 0 if lane == 0 else 4
+    # ── helpers ──
 
-    def _player_pixels(self):
-        off = self._lane_off(self.player_lane)
-        return frozenset((r + off + 1, RACER_PLAYER_COL + c)
-                         for r, c in RACER_TEMPLATES[self.player_tmpl])
-
-    def _npc_pixels(self, npc):
-        off = self._lane_off(npc.lane)
-        col = int(round(npc.col))
-        return frozenset((r + off + 1, col + c) for r, c in npc.pixels_tmpl)
-
-    def _npc_width(self, npc):
-        return RACER_TEMPLATE_WIDTHS[npc.tmpl_idx]
-
-    def _player_width(self):
-        return RACER_TEMPLATE_WIDTHS[self.player_tmpl]
-
-    def _difficulty_factor(self):
-        """0.0 at start, approaching 1.0 over time."""
+    def _difficulty(self):
         return min(self.ticks / 500.0, 1.0)
+
+    def _pick_npc_type(self):
+        diff = self._difficulty()
+        late_dict = dict(RACER_SPAWN_LATE)
+        weights = {}
+        for name, early_w in RACER_SPAWN_EARLY:
+            late_w = late_dict[name]
+            weights[name] = early_w + (late_w - early_w) * diff
+        total = sum(weights.values())
+        r = random.uniform(0, total)
+        cum = 0.0
+        for name, w in weights.items():
+            cum += w
+            if r <= cum:
+                return name
+        return 'gray'
 
     def _spawn_npc(self):
         lane = random.randint(0, 1)
-        w = RACER_TEMPLATE_WIDTHS[0]  # max width for overlap check
-        if any(n.lane == lane and n.col >= W - 2 for n in self.npcs):
-            return
-        diff = self._difficulty_factor()
-        speed = random.uniform(0.5, 0.5 + diff * 1.0)  # 0.5 ~ 1.5
-        color_code = random.choice(RACER_NPC_PALETTE)
-        aggressive = random.random() < (0.3 + diff * 0.3)  # 30% ~ 60%
-        tmpl_idx = random.randint(0, 2)
-        self.npcs.append(RacerNPC(lane, W + 1, speed, color_code, aggressive, tmpl_idx))
+        # keep at least 6 cols gap in the same lane
+        for npc in self.npcs:
+            if npc.lane == lane and npc.col >= W - 6:
+                return
+        npc_type = self._pick_npc_type()
+        self.npcs.append(RacerNPC(lane, W + 1, npc_type))
+
+    # ── tick ──
 
     def tick(self):
         self.ticks += 1
-        diff = self._difficulty_factor()
-        pw = self._player_width()
+        diff = self._difficulty()
         pc = RACER_PLAYER_COL
+        pw = RACER_CAR_WIDTHS['standard']
 
-        # ── Spawn NPCs ──
+        # ── Spawn ──
         self.spawn_timer += 1
         base_interval = max(4, 12 - int(diff * 6))
         if self.spawn_timer >= base_interval and len(self.npcs) < RACER_MAX_NPCS:
             self.spawn_timer = 0
             self._spawn_npc()
-            # Sometimes double spawn
             if diff > 0.5 and random.random() < 0.3 and len(self.npcs) < RACER_MAX_NPCS:
                 self._spawn_npc()
 
-        # ── Move NPCs (sub-frame accumulator) ──
+        # ── Move NPCs (sub-pixel accumulator) ──
         for npc in self.npcs:
             npc.accumulator += npc.speed
             while npc.accumulator >= 1.0:
                 npc.col -= 1
                 npc.accumulator -= 1.0
 
-        # ── NPC Intelligence ──
+        # ── NPC AI (per-type behaviour) ──
         for npc in self.npcs:
-            nw = self._npc_width(npc)
-            col_i = int(round(npc.col))
-            other_lane = 1 - npc.lane
+            if npc.npc_type == 'blue':
+                # Dodge: player approaching in same lane → switch lane
+                col_i = int(round(npc.col))
+                if npc.lane == self.player_lane:
+                    dist = col_i - (pc + pw)
+                    if 0 <= dist < 6:
+                        npc.lane = 1 - npc.lane
 
-            # Check for collision ahead (same lane)
-            blocked_ahead = False
-            for other in self.npcs:
-                if other is npc: continue
-                if other.lane != npc.lane: continue
-                ow = self._npc_width(other)
-                oc = int(round(other.col))
-                # Is other NPC ahead of us? (other.col < npc.col since they move left)
-                if oc < col_i and col_i - (oc + ow) < 3:
-                    blocked_ahead = True
-                    break
+            elif npc.npc_type == 'yellow':
+                # Weaver: periodically auto-switch lanes (S-curve)
+                npc.weave_timer += 1
+                if npc.weave_timer >= npc.weave_interval:
+                    npc.weave_timer = 0
+                    npc.weave_interval = random.randint(3, 5)
+                    npc.lane = 1 - npc.lane
 
-            # Aggressive: try to block player
-            if npc.aggressive and not blocked_ahead:
-                # Is player behind us in the same lane?
-                if self.player_lane == npc.lane and col_i > pc + pw:
-                    # Player is behind in same lane, stay
-                    pass
-                elif self.player_lane != npc.lane and col_i > pc:
-                    # Player is in other lane and behind — switch to block
-                    safe = True
-                    for other in self.npcs:
-                        if other is npc: continue
-                        if other.lane != other_lane: continue
-                        oc = int(round(other.col))
-                        ow2 = self._npc_width(other)
-                        if not (col_i + nw <= oc or col_i >= oc + ow2):
-                            safe = False
-                            break
-                    if safe:
-                        npc.lane = other_lane
+            elif npc.npc_type == 'red':
+                # Chaser: actively track the player's lane
+                if npc.chase_cooldown > 0:
+                    npc.chase_cooldown -= 1
+                if npc.lane != self.player_lane and npc.chase_cooldown == 0:
+                    npc.lane = self.player_lane
+                    npc.chase_cooldown = 5
 
-            # Avoidance: if blocked ahead, try to switch lanes
-            if blocked_ahead:
-                safe = True
-                for other in self.npcs:
-                    if other is npc: continue
-                    if other.lane != other_lane: continue
-                    oc = int(round(other.col))
-                    ow2 = self._npc_width(other)
-                    if not (col_i + nw <= oc or col_i >= oc + ow2):
-                        safe = False
-                        break
-                # Also check player
-                if safe:
-                    p_off = self._lane_off(self.player_lane)
-                    n_off = self._lane_off(other_lane)
-                    # Just check col overlap, lane is already different
-                    if not (col_i + nw <= pc or col_i >= pc + pw):
-                        safe = False
-                if safe:
-                    npc.lane = other_lane
+            # gray & truck: straight line, never change lane
 
-        # ── Remove off-screen NPCs ──
-        survived = []
-        for npc in self.npcs:
-            nw = self._npc_width(npc)
-            if npc.col < -(nw + 2):
-                self.overtakes += 1
-            else:
-                survived.append(npc)
-        self.npcs = survived
+        # ── Remove off-screen ──
+        self.npcs = [n for n in self.npcs
+                     if n.col > -(RACER_CAR_WIDTHS[n.tmpl_key] + 2)]
 
         # ── Player AI ──
         LOOKAHEAD = 14
 
-        def lane_clearance(lane):
-            best = LOOKAHEAD + 1
-            has_aggressive = False
+        def lane_score(lane):
+            min_dist = LOOKAHEAD + 1
+            threat = 0
             for npc in self.npcs:
-                if npc.lane != lane: continue
-                nw2 = self._npc_width(npc)
-                col_i2 = int(round(npc.col))
-                front_gap = col_i2 - (pc + pw)
-                if front_gap >= 0 and front_gap < best:
-                    best = front_gap
-                if npc.aggressive and col_i2 > pc:
-                    has_aggressive = True
-            return best, has_aggressive
+                if npc.lane != lane:
+                    continue
+                col_i = int(round(npc.col))
+                nw = RACER_CAR_WIDTHS[npc.tmpl_key]
+                gap = col_i - (pc + pw)
+                if 0 <= gap < min_dist:
+                    min_dist = gap
+                # red cars actively chase → highest threat
+                if npc.npc_type == 'red' and col_i > pc - 2:
+                    threat += 4
+                # yellow cars weave unpredictably
+                if npc.npc_type == 'yellow' and col_i > pc:
+                    threat += 2
+                # trucks are wide obstacles
+                if npc.npc_type == 'truck' and col_i > pc:
+                    threat += 1
+            return min_dist - threat
 
-        cur_clear, cur_aggro = lane_clearance(self.player_lane)
-        other = 1 - self.player_lane
-        other_clear, other_aggro = lane_clearance(other)
+        cur_score = lane_score(self.player_lane)
+        other_lane = 1 - self.player_lane
+        other_score = lane_score(other_lane)
 
-        # Check if other lane is safe (no overlap)
         def lane_safe(lane):
             for npc in self.npcs:
-                if npc.lane != lane: continue
-                nw2 = self._npc_width(npc)
-                col_i2 = int(round(npc.col))
-                if not (col_i2 + nw2 <= pc or col_i2 >= pc + pw):
+                if npc.lane != lane:
+                    continue
+                col_i = int(round(npc.col))
+                nw = RACER_CAR_WIDTHS[npc.tmpl_key]
+                if not (col_i + nw <= pc or col_i >= pc + pw):
                     return False
             return True
 
-        other_safe = lane_safe(other)
+        if lane_safe(other_lane) and other_score > cur_score:
+            self.player_lane = other_lane
 
-        # Decision: switch if other lane is meaningfully better
-        if other_safe:
-            cur_score = cur_clear - (3 if cur_aggro else 0)
-            other_score = other_clear - (3 if other_aggro else 0)
-            if other_score > cur_score + 1:
-                self.player_lane = other
+        # ── Collision (player ↔ NPC only) ──
+        p_off = _racer_lane_off(self.player_lane)
+        player_set = frozenset((r + p_off, pc + c)
+                               for r, c in RACER_CAR_TEMPLATES['standard'])
 
-        # ── Collision Detection ──
-        p_set = self._player_pixels()
+        hit = []
         for npc in self.npcs:
-            n_set = self._npc_pixels(npc)
-            if p_set & n_set:
-                self.npcs.clear()
-                self.overtakes = max(0, self.overtakes - 3)
-                break
+            n_off = _racer_lane_off(npc.lane)
+            col_i = int(round(npc.col))
+            npc_set = frozenset((r + n_off, col_i + c)
+                                for r, c in RACER_CAR_TEMPLATES[npc.tmpl_key])
+            if player_set & npc_set:
+                hit.append(npc)
+        for npc in hit:
+            if npc in self.npcs:
+                self.npcs.remove(npc)
 
         # ── Render ──
-        # Build color map: (row, col) → ANSI color string
         color_map = {}
 
-        # Player car pixels
-        off = self._lane_off(self.player_lane)
-        for r, c in RACER_TEMPLATES[self.player_tmpl]:
-            ar, ac = r + off + 1, pc + c
+        # Player pixels (green)
+        p_off = _racer_lane_off(self.player_lane)
+        for r, c in RACER_CAR_TEMPLATES['standard']:
+            ac = pc + c
             if 0 <= ac < W:
-                color_map[(ar, ac)] = RACER_PLAYER_COLOR
+                color_map[(r + p_off, ac)] = RACER_PLAYER_COLOR
 
-        # NPC car pixels
+        # NPC pixels
         for npc in self.npcs:
-            off = self._lane_off(npc.lane)
+            n_off = _racer_lane_off(npc.lane)
             col_i = int(round(npc.col))
-            for r, c in npc.pixels_tmpl:
-                ar, ac = r + off + 1, col_i + c
+            for r, c in RACER_CAR_TEMPLATES[npc.tmpl_key]:
+                ac = col_i + c
                 if 0 <= ac < W:
-                    color_map[(ar, ac)] = npc.color
+                    color_map[(r + n_off, ac)] = npc.color
 
-        # Braille render with color (two lines)
+        # Braille render with colour (two lines)
         lines = []
         for half in range(2):
             parts = []
