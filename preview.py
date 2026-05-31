@@ -707,58 +707,91 @@ class InvadersAnimation:
         return "".join(parts)
 
 
-# ─── 10. Racer Animation (horizontal 4-lane overtaking) ─────────────
+# ─── 10. Racer Animation (horizontal 2-lane overtaking, 16x8) ──────
 
 class RacerAnimation:
-    """Side-scrolling racer: overtake traffic on 4-lane road."""
+    """Side-scrolling 2-lane racer on 16x8 canvas.
+    Lane 0: rows 1-2 (upper), Lane 1: rows 5-6 (lower).
+    Cars are 2-row × 3-col pixel art.
+    """
+
+    # Car shapes: (top_row_dots, bot_row_dots) each is list of col offsets
+    # Player car (facing right, sleek)
+    PLAYER_TOP = [0, 1]        # windscreen slope
+    PLAYER_BOT = [0, 1, 2]     # body + wheels
+
+    # Enemy car shapes (facing left, varied)
+    ENEMY_SHAPES = [
+        ([0, 1], [0, 1, 2]),       # same as player
+        ([1, 2], [0, 1, 2]),       # cab-forward
+        ([0], [0, 1, 2]),          # flat top
+        ([0, 2], [0, 1, 2]),       # double cab
+    ]
+
+    CAR_COLORS = [
+        "\x1b[38;5;196m",   # red
+        "\x1b[38;5;214m",   # orange
+        "\x1b[38;5;69m",    # blue
+        "\x1b[38;5;201m",   # magenta
+        "\x1b[38;5;226m",   # yellow
+        "\x1b[38;5;46m",    # green
+    ]
 
     def __init__(self):
-        self.player_row = 1
-        self.enemies = []      # [[row, col], ...]
+        self.player_lane = 0
+        self.enemies = []      # [[lane, col, shape_idx, color_idx], ...]
         self.overtakes = 0
         self.spawn_timer = 0
         self.road_phase = 0
 
+    def _lane_rows(self, lane):
+        """Return (top_row, bot_row) for a lane."""
+        return (1, 2) if lane == 0 else (5, 6)
+
     def tick(self):
         self.road_phase += 1
 
-        # Spawn enemy cars at right edge
+        # Spawn enemy cars (max 2 side by side = one per lane)
         self.spawn_timer += 1
-        interval = max(3, 7 - min(self.overtakes // 4, 4))
+        interval = max(3, 8 - min(self.overtakes // 3, 5))
         if self.spawn_timer >= interval:
             self.spawn_timer = 0
-            row = random.randint(0, 3)
-            if not any(e[0] == row and e[1] >= W - 3 for e in self.enemies):
-                self.enemies.append([row, W - 1])
+            lane = random.randint(0, 1)
+            # Don't stack more than 1 per lane near spawn
+            blocked = any(e[0] == lane and e[1] >= W - 5 for e in self.enemies)
+            if not blocked:
+                si = random.randint(0, len(self.ENEMY_SHAPES) - 1)
+                ci = random.randint(0, len(self.CAR_COLORS) - 1)
+                self.enemies.append([lane, W, si, ci])
 
-        # Move enemies left (slow traffic being overtaken)
+        # Move enemies left
         survived = []
         for e in self.enemies:
             e[1] -= 1
-            if e[1] < -2:
+            if e[1] < -4:
                 self.overtakes += 1
             else:
                 survived.append(e)
         self.enemies = survived
 
-        # AI: dodge nearest threat
-        threats = sorted([e for e in self.enemies if 1 <= e[1] <= 5],
+        # AI: dodge — look ahead for threats in current lane
+        threats = sorted([e for e in self.enemies if e[1] <= 6 and e[1] >= 1],
                          key=lambda x: x[1])
         for e in threats:
-            if e[0] == self.player_row:
-                for dr in [1, -1]:
-                    nr = self.player_row + dr
-                    if 0 <= nr < 4:
-                        blocked = any(en[0] == nr and -1 <= en[1] <= 5
-                                      for en in self.enemies)
-                        if not blocked:
-                            self.player_row = nr
-                            break
+            if e[0] == self.player_lane:
+                other = 1 - self.player_lane
+                # Check other lane is safe
+                safe = not any(oe[0] == other and -1 <= oe[1] <= 6
+                               for oe in self.enemies)
+                if safe:
+                    self.player_lane = other
                 break
 
-        # Collision → crash reset
+        # Collision check
+        pr, _ = self._lane_rows(self.player_lane)
         for e in self.enemies:
-            if e[0] == self.player_row and -1 <= e[1] <= 2:
+            er, _ = self._lane_rows(e[0])
+            if er == pr and -2 <= e[1] <= 3:
                 self.enemies.clear()
                 self.overtakes = max(0, self.overtakes - 5)
                 break
@@ -767,57 +800,70 @@ class RacerAnimation:
         grid = set()
         color_map = {}
 
-        # Scrolling road dashes (edge lines + center divider)
         GRAY = "\x1b[38;5;237m"
+        DASH = "\x1b[38;5;244m"
+
+        # Top road edge (row 0)
         for c in range(W):
-            phase = (c + self.road_phase) % 6
-            # Top & bottom edge dashes
-            if phase < 3:
+            if (c + self.road_phase) % 4 < 2:
                 grid.add((0, c)); color_map[(0, c)] = GRAY
-                grid.add((3, c)); color_map[(3, c)] = GRAY
 
-        # Player car (3px wide, bright green)
+        # Center divider dashes (row 3, row 4)
+        for c in range(W):
+            if (c + self.road_phase) % 6 < 3:
+                grid.add((3, c)); color_map[(3, c)] = DASH
+                grid.add((4, c)); color_map[(4, c)] = DASH
+
+        # Bottom road edge (row 7)
+        for c in range(W):
+            if (c + self.road_phase) % 4 < 2:
+                grid.add((7, c)); color_map[(7, c)] = GRAY
+
+        # Player car (bright green, at col 1-3)
         GREEN = "\x1b[38;5;82m"
-        for c in [1, 2, 3]:
-            grid.add((self.player_row, c))
-            color_map[(self.player_row, c)] = GREEN
+        pr_top, pr_bot = self._lane_rows(self.player_lane)
+        for dc in self.PLAYER_TOP:
+            k = (pr_top, 1 + dc); grid.add(k); color_map[k] = GREEN
+        for dc in self.PLAYER_BOT:
+            k = (pr_bot, 1 + dc); grid.add(k); color_map[k] = GREEN
 
-        # Enemy cars (2px wide, various colors)
-        CAR_COLORS = [
-            "\x1b[38;5;196m",   # red
-            "\x1b[38;5;214m",   # orange
-            "\x1b[38;5;69m",    # blue
-            "\x1b[38;5;201m",   # magenta
-            "\x1b[38;5;226m",   # yellow
-        ]
-        for i, e in enumerate(self.enemies):
-            color = CAR_COLORS[i % len(CAR_COLORS)]
-            for dc in range(2):
+        # Enemy cars
+        for e in self.enemies:
+            shape_top, shape_bot = self.ENEMY_SHAPES[e[2]]
+            color = self.CAR_COLORS[e[3]]
+            er_top, er_bot = self._lane_rows(e[0])
+            for dc in shape_top:
                 c = e[1] + dc
                 if 0 <= c < W:
-                    grid.add((e[0], c))
-                    color_map[(e[0], c)] = color
+                    k = (er_top, c); grid.add(k); color_map[k] = color
+            for dc in shape_bot:
+                c = e[1] + dc
+                if 0 <= c < W:
+                    k = (er_bot, c); grid.add(k); color_map[k] = color
 
-        # Braille render
-        parts = []
-        for cx in range(0, W, 2):
-            val = 0
-            color = None
-            for r in range(H):
-                for c in range(2):
-                    gk = (r, cx + c)
-                    if gk in grid:
-                        val |= DOT_MAP[(r, c)]
-                    if gk in color_map:
-                        color = color_map[gk]
-            ch = chr_braille(val)
-            if val == 0:
-                parts.append(EMPTY_BRAILLE)
-            elif color:
-                parts.append(f"{color}{ch}{RESET}")
-            else:
-                parts.append(ch)
-        return "".join(parts)
+        # Braille render (two lines)
+        lines = []
+        for half in range(2):
+            parts = []
+            for cx in range(0, W, 2):
+                val = 0
+                color = None
+                for r in range(4):
+                    for c in range(2):
+                        gk = (r + half * 4, cx + c)
+                        if gk in grid:
+                            val |= DOT_MAP[(r, c)]
+                        if gk in color_map:
+                            color = color_map[gk]
+                ch = chr_braille(val)
+                if val == 0:
+                    parts.append(EMPTY_BRAILLE)
+                elif color:
+                    parts.append(f"{color}{ch}{RESET}")
+                else:
+                    parts.append(ch)
+            lines.append("".join(parts))
+        return "\n".join(lines)
 
 
 # ─── Terminal runner ─────────────────────────────────────────────────

@@ -697,9 +697,10 @@ class CatAnimation {
   }
 }
 
-// ─── 7. Racer Animation (horizontal 4-lane overtaking) ────────────
+// ─── 7. Racer Animation (horizontal 2-lane overtaking, 16x8) ──────
 
 const RACER_GRAY = "\x1b[38;5;237m";
+const RACER_DASH = "\x1b[38;5;244m";
 const RACER_GREEN = "\x1b[38;5;82m";
 const RACER_CAR_COLORS = [
   "\x1b[38;5;196m",   // red
@@ -707,11 +708,26 @@ const RACER_CAR_COLORS = [
   "\x1b[38;5;69m",    // blue
   "\x1b[38;5;201m",   // magenta
   "\x1b[38;5;226m",   // yellow
+  "\x1b[38;5;46m",    // green
 ];
 
+// Car shapes: [topRowColOffsets, botRowColOffsets]
+const PLAYER_TOP = [0, 1];
+const PLAYER_BOT = [0, 1, 2];
+const ENEMY_SHAPES: [number[], number[]][] = [
+  [[0, 1], [0, 1, 2]],       // standard
+  [[1, 2], [0, 1, 2]],       // cab-forward
+  [[0], [0, 1, 2]],          // flat top
+  [[0, 2], [0, 1, 2]],       // double cab
+];
+
+function laneRows(lane: number): [number, number] {
+  return lane === 0 ? [1, 2] : [5, 6];
+}
+
 class RacerAnimation {
-  private playerRow = 1;
-  private enemies: [number, number][] = [];  // [row, col]
+  private playerLane = 0;
+  private enemies: [number, number, number, number][] = []; // [lane, col, shapeIdx, colorIdx]
   private overtakes = 0;
   private spawnTimer = 0;
   private roadPhase = 0;
@@ -719,45 +735,47 @@ class RacerAnimation {
   tick(): string {
     this.roadPhase++;
 
-    // Spawn enemy cars at right edge
+    // Spawn enemy cars (max 1 per lane near spawn)
     this.spawnTimer++;
-    const interval = Math.max(3, 7 - Math.min(Math.floor(this.overtakes / 4), 4));
+    const interval = Math.max(3, 8 - Math.min(Math.floor(this.overtakes / 3), 5));
     if (this.spawnTimer >= interval) {
       this.spawnTimer = 0;
-      const row = Math.floor(Math.random() * 4);
-      const blocked = this.enemies.some(e => e[0] === row && e[1] >= W - 3);
-      if (!blocked) this.enemies.push([row, W - 1]);
+      const lane = Math.floor(Math.random() * 2);
+      const blocked = this.enemies.some(e => e[0] === lane && e[1] >= W - 5);
+      if (!blocked) {
+        const si = Math.floor(Math.random() * ENEMY_SHAPES.length);
+        const ci = Math.floor(Math.random() * RACER_CAR_COLORS.length);
+        this.enemies.push([lane, W, si, ci]);
+      }
     }
 
-    // Move enemies left (slow traffic being overtaken)
-    const survived: [number, number][] = [];
+    // Move enemies left
+    const survived: [number, number, number, number][] = [];
     for (const e of this.enemies) {
       e[1] -= 1;
-      if (e[1] < -2) this.overtakes++;
+      if (e[1] < -4) this.overtakes++;
       else survived.push(e);
     }
     this.enemies = survived;
 
-    // AI: dodge nearest threat
+    // AI: dodge threats in current lane
     const threats = this.enemies
-      .filter(e => e[1] >= 1 && e[1] <= 5)
+      .filter(e => e[1] >= 1 && e[1] <= 6)
       .sort((a, b) => a[1] - b[1]);
     for (const e of threats) {
-      if (e[0] === this.playerRow) {
-        for (const dr of [1, -1]) {
-          const nr = this.playerRow + dr;
-          if (nr >= 0 && nr < 4) {
-            const blocked = this.enemies.some(en => en[0] === nr && en[1] >= -1 && en[1] <= 5);
-            if (!blocked) { this.playerRow = nr; break; }
-          }
-        }
+      if (e[0] === this.playerLane) {
+        const other = 1 - this.playerLane;
+        const safe = !this.enemies.some(oe => oe[0] === other && oe[1] >= -1 && oe[1] <= 6);
+        if (safe) this.playerLane = other;
         break;
       }
     }
 
-    // Collision → crash reset
+    // Collision check
+    const [pRow] = laneRows(this.playerLane);
     for (const e of this.enemies) {
-      if (e[0] === this.playerRow && e[1] >= -1 && e[1] <= 2) {
+      const [eRow] = laneRows(e[0]);
+      if (eRow === pRow && e[1] >= -2 && e[1] <= 3) {
         this.enemies = [];
         this.overtakes = Math.max(0, this.overtakes - 5);
         break;
@@ -768,52 +786,79 @@ class RacerAnimation {
     const grid = new Set<string>();
     const colorMap = new Map<string, string>();
 
-    // Scrolling road edge dashes
+    // Top road edge (row 0)
+    for (let c = 0; c < W; c++) {
+      if ((c + this.roadPhase) % 4 < 2) {
+        grid.add(`0,${c}`); colorMap.set(`0,${c}`, RACER_GRAY);
+      }
+    }
+
+    // Center divider dashes (rows 3-4)
     for (let c = 0; c < W; c++) {
       if ((c + this.roadPhase) % 6 < 3) {
-        grid.add(`0,${c}`); colorMap.set(`0,${c}`, RACER_GRAY);
-        grid.add(`3,${c}`); colorMap.set(`3,${c}`, RACER_GRAY);
+        grid.add(`3,${c}`); colorMap.set(`3,${c}`, RACER_DASH);
+        grid.add(`4,${c}`); colorMap.set(`4,${c}`, RACER_DASH);
       }
     }
 
-    // Player car (3px wide, bright green)
-    for (const c of [1, 2, 3]) {
-      const k = `${this.playerRow},${c}`;
-      grid.add(k); colorMap.set(k, RACER_GREEN);
+    // Bottom road edge (row 7)
+    for (let c = 0; c < W; c++) {
+      if ((c + this.roadPhase) % 4 < 2) {
+        grid.add(`7,${c}`); colorMap.set(`7,${c}`, RACER_GRAY);
+      }
     }
 
-    // Enemy cars (2px wide, various colors)
-    for (let i = 0; i < this.enemies.length; i++) {
-      const e = this.enemies[i];
-      const color = RACER_CAR_COLORS[i % RACER_CAR_COLORS.length];
-      for (const dc of [0, 1]) {
+    // Player car (bright green, cols 1-3)
+    const [prTop, prBot] = laneRows(this.playerLane);
+    for (const dc of PLAYER_TOP) {
+      const k = `${prTop},${1 + dc}`; grid.add(k); colorMap.set(k, RACER_GREEN);
+    }
+    for (const dc of PLAYER_BOT) {
+      const k = `${prBot},${1 + dc}`; grid.add(k); colorMap.set(k, RACER_GREEN);
+    }
+
+    // Enemy cars
+    for (const e of this.enemies) {
+      const [shapeTop, shapeBot] = ENEMY_SHAPES[e[2]];
+      const color = RACER_CAR_COLORS[e[3]];
+      const [erTop, erBot] = laneRows(e[0]);
+      for (const dc of shapeTop) {
         const c = e[1] + dc;
         if (c >= 0 && c < W) {
-          const k = `${e[0]},${c}`;
-          grid.add(k); colorMap.set(k, color);
+          const k = `${erTop},${c}`; grid.add(k); colorMap.set(k, color);
+        }
+      }
+      for (const dc of shapeBot) {
+        const c = e[1] + dc;
+        if (c >= 0 && c < W) {
+          const k = `${erBot},${c}`; grid.add(k); colorMap.set(k, color);
         }
       }
     }
 
-    // Braille render
-    const parts: string[] = [];
-    for (let cx = 0; cx < W; cx += 2) {
-      let val = 0;
-      let color: string | undefined;
-      for (let r = 0; r < H; r++) {
-        for (let c = 0; c < 2; c++) {
-          const gk = `${r},${cx + c}`;
-          if (grid.has(gk)) val |= DOT_MAP[`${r},${c}`];
-          const clr = colorMap.get(gk);
-          if (clr) color = clr;
+    // Braille render (two lines)
+    const lines: string[] = [];
+    for (let half = 0; half < 2; half++) {
+      const parts: string[] = [];
+      for (let cx = 0; cx < W; cx += 2) {
+        let val = 0;
+        let color: string | undefined;
+        for (let r = 0; r < 4; r++) {
+          for (let c = 0; c < 2; c++) {
+            const gk = `${r + half * 4},${cx + c}`;
+            if (grid.has(gk)) val |= DOT_MAP[`${r},${c}`];
+            const clr = colorMap.get(gk);
+            if (clr) color = clr;
+          }
         }
+        const ch = String.fromCharCode(BRAILLE_OFFSET + val);
+        if (val === 0) parts.push(EMPTY_BRAILLE);
+        else if (color) parts.push(`${color}${ch}${RESET}`);
+        else parts.push(ch);
       }
-      const ch = String.fromCharCode(BRAILLE_OFFSET + val);
-      if (val === 0) parts.push(EMPTY_BRAILLE);
-      else if (color) parts.push(`${color}${ch}${RESET}`);
-      else parts.push(ch);
+      lines.push(parts.join(""));
     }
-    return parts.join("");
+    return lines.join("\n");
   }
 }
 
