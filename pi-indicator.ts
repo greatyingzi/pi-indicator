@@ -346,20 +346,208 @@ class PacManAnimation {
   }
 }
 
+// ─── 4. Equalizer Animation ───────────────────────────────────────
+
+class EqualizerAnimation {
+  private heights: number[] = new Array(8).fill(0);
+  private targets: number[];
+  private targetTimer: number = 0;
+
+  constructor() {
+    this.targets = Array.from({ length: 8 }, () => Math.floor(Math.random() * 5));
+  }
+
+  tick(): string {
+    this.targetTimer++;
+    if (this.targetTimer >= 8) {
+      this.targetTimer = 0;
+      for (let i = 0; i < 8; i++) {
+        this.targets[i] = Math.floor(Math.random() * 5);
+      }
+    }
+
+    // Smooth interpolation toward targets
+    for (let i = 0; i < 8; i++) {
+      const diff = this.targets[i] - this.heights[i];
+      this.heights[i] += diff * 0.25;
+    }
+
+    // Render
+    const grid = new Set<string>();
+    for (let i = 0; i < 8; i++) {
+      const h = Math.round(this.heights[i]);
+      for (let row = 0; row < H; row++) {
+        // Fill from bottom: row 3 is bottom, row 0 is top
+        if (row >= H - h) {
+          grid.add(`${row},${i * 2}`);
+          grid.add(`${row},${i * 2 + 1}`);
+        }
+      }
+    }
+
+    return toBraille(grid);
+  }
+}
+
+// ─── 5. Invaders Animation (horizontal) ───────────────────────────
+// Ship on LEFT (col 0-1), aliens invade from RIGHT
+// Ship moves up/down, bullets shoot RIGHT, aliens approach LEFT
+
+class InvadersAnimation {
+  private shipRow: number = 2;
+  private shipDir: number = 1;
+  private aliens: Set<string> = new Set();
+  private alienDir: number = -1;
+  private alienTimer: number = 0;
+  private bullets: number[][] = []; // [row, col]
+  private shootTimer: number = 0;
+
+  constructor() {
+    this.spawnAliens();
+  }
+
+  private spawnAliens() {
+    this.aliens.clear();
+    for (let r = 0; r < 4; r++) {
+      this.aliens.add(`${r},${W - 1}`);
+      this.aliens.add(`${r},${W - 2}`);
+      this.aliens.add(`${r},${W - 4}`);
+      this.aliens.add(`${r},${W - 5}`);
+    }
+  }
+
+  tick(): string {
+    this.alienTimer++;
+    this.shootTimer++;
+
+    // Ship moves up/down
+    this.shipRow += this.shipDir;
+    if (this.shipRow >= H - 1) this.shipDir = -1;
+    else if (this.shipRow <= 0) this.shipDir = 1;
+
+    // Auto-shoot right
+    if (this.shootTimer >= 3) {
+      this.shootTimer = 0;
+      this.bullets.push([this.shipRow, 2]);
+    }
+
+    // Move bullets right
+    const newBullets: number[][] = [];
+    for (const b of this.bullets) {
+      b[1]++;
+      if (b[1] < W) {
+        const key = `${b[0]},${b[1]}`;
+        if (this.aliens.has(key)) {
+          this.aliens.delete(key);
+        } else {
+          newBullets.push(b);
+        }
+      }
+    }
+    this.bullets = newBullets;
+
+    // Move aliens
+    if (this.alienTimer >= 6) {
+      this.alienTimer = 0;
+      if (this.aliens.size > 0) {
+        let minC = W, maxC = 0;
+        for (const key of this.aliens) {
+          const c = parseInt(key.split(",")[1], 10);
+          if (c < minC) minC = c;
+          if (c > maxC) maxC = c;
+        }
+
+        const newAliens = new Set<string>();
+        let shiftV = false;
+
+        if (this.alienDir < 0 && minC <= 4) {
+          this.alienDir = 1;
+          shiftV = true;
+        } else if (this.alienDir > 0 && maxC >= W - 1) {
+          this.alienDir = -1;
+          shiftV = true;
+        }
+
+        for (const key of this.aliens) {
+          const parts = key.split(",");
+          let r = parseInt(parts[0], 10);
+          let c = parseInt(parts[1], 10);
+          if (shiftV) r++;
+          else c += this.alienDir;
+          if (r >= 0 && r < H && c >= 0 && c < W) {
+            newAliens.add(`${r},${c}`);
+          }
+        }
+        this.aliens = newAliens;
+      }
+
+      if (this.aliens.size === 0 || [...this.aliens].some(k => parseInt(k.split(",")[0], 10) >= H)) {
+        this.spawnAliens();
+      }
+    }
+
+    // Render
+    const SHIP_COLOR = "\x1b[38;5;46m";
+    const ALIEN_COLOR = "\x1b[38;5;196m";
+    const BULLET_COLOR = "\x1b[38;5;226m";
+
+    const shipDots = new Set<string>([`${this.shipRow},0`, `${this.shipRow},1`]);
+    const alienDots = new Set<string>(this.aliens);
+    const bulletDots = new Set<string>();
+    for (const b of this.bullets) {
+      if (b[1] >= 0 && b[1] < W) bulletDots.add(`${b[0]},${b[1]}`);
+    }
+
+    const parts: string[] = [];
+    for (let cx = 0; cx < W; cx += 2) {
+      let val = 0;
+      let hasShip = false, hasAlien = false, hasBullet = false;
+      for (let r = 0; r < H; r++) {
+        for (let c = 0; c < 2; c++) {
+          const gk = `${r},${cx + c}`;
+          if (shipDots.has(gk) || alienDots.has(gk) || bulletDots.has(gk)) {
+            val |= DOT_MAP[`${r},${c}`];
+          }
+          if (shipDots.has(gk)) hasShip = true;
+          if (alienDots.has(gk)) hasAlien = true;
+          if (bulletDots.has(gk)) hasBullet = true;
+        }
+      }
+      const ch = String.fromCharCode(BRAILLE_OFFSET + val);
+      if (val === 0) {
+        parts.push(EMPTY_BRAILLE);
+      } else if (hasAlien && !hasShip && !hasBullet) {
+        parts.push(`${ALIEN_COLOR}${ch}${RESET}`);
+      } else if (hasBullet && !hasShip && !hasAlien) {
+        parts.push(`${BULLET_COLOR}${ch}${RESET}`);
+      } else if (hasShip) {
+        parts.push(`${SHIP_COLOR}${ch}${RESET}`);
+      } else {
+        parts.push(ch);
+      }
+    }
+    return parts.join("");
+  }
+}
+
 // ─── Animation Engine ───────────────────────────────────────────────
 
-type AnimType = "snake" | "breakout" | "pacman";
+type AnimType = "snake" | "breakout" | "pacman" | "equalizer" | "invaders";
 
 const ANIM_LIST: { id: AnimType; label: string }[] = [
   { id: "snake", label: "Snake 🐍" },
   { id: "breakout", label: "Breakout 🧱" },
   { id: "pacman", label: "Pac-Man 👾" },
+  { id: "equalizer", label: "Equalizer 📊" },
+  { id: "invaders", label: "Invaders 🛸" },
 ];
 
 const ANIM_INTERVALS: Record<AnimType, number> = {
   snake: 120,
   breakout: 100,
   pacman: 140,
+  equalizer: 150,
+  invaders: 120,
 };
 
 interface AnimationState {
@@ -375,6 +563,8 @@ function createAnimation(type: AnimType): { tick: () => string } {
     case "snake": return new SnakeAnimation();
     case "breakout": return new BreakoutAnimation();
     case "pacman": return new PacManAnimation();
+    case "equalizer": return new EqualizerAnimation();
+    case "invaders": return new InvadersAnimation();
   }
 }
 
@@ -487,7 +677,7 @@ export default function (pi: ExtensionAPI) {
     }
   };
 
-  const cmdDesc = "Switch animation: /indicator <snake|breakout|pacman> or /anim to pick";
+  const cmdDesc = "Switch animation: /indicator <snake|breakout|pacman|equalizer|invaders> or /anim to pick";
   pi.registerCommand("indicator", { description: cmdDesc, handler: cmdHandler });
   pi.registerCommand("anim", { description: cmdDesc, handler: cmdHandler });
 }

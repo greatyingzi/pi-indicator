@@ -1,7 +1,7 @@
 {
   "name": "pi-indicator",
   "version": "1.0.0",
-  "description": "Animated working indicator extension for Pi — braille-dot games: Snake, Breakout, Pac-Man.",
+  "description": "Animated working indicator extension for Pi — braille-dot games: Snake, Breakout, Pac-Man, Equalizer, Invaders.",
   "type": "module",
   "license": "0BSD",
   "repository": {
