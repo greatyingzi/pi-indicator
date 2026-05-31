@@ -1,26 +1,26 @@
 {
-  "name": "pi-snake",
+  "name": "pi-indicator",
   "version": "1.0.0",
-  "description": "Animated working indicator extension for Pi — 6 built-in animations: Snake, Pong, Tetris, Bouncing Ball, Sine Wave, Fireflies.",
+  "description": "Animated working indicator extension for Pi — braille-dot games: Snake, Breakout, Pac-Man.",
   "type": "module",
   "license": "0BSD",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/greatyingzi/pi-snake.git"
+    "url": "git+https://github.com/greatyingzi/pi-indicator.git"
   },
   "bugs": {
-    "url": "https://github.com/greatyingzi/pi-snake/issues"
+    "url": "https://github.com/greatyingzi/pi-indicator/issues"
   },
-  "homepage": "https://github.com/greatyingzi/pi-snake#readme",
+  "homepage": "https://github.com/greatyingzi/pi-indicator#readme",
   "keywords": [
     "pi",
     "pi-package",
     "pi-extension",
-    "snake",
-    "game"
+    "indicator",
+    "animation"
   ],
   "files": [
-    "pi-snake.ts",
+    "pi-indicator.ts",
     "README.md"
   ],
   "peerDependencies": {
@@ -28,7 +28,7 @@
   },
   "pi": {
     "extensions": [
-      "./pi-snake.ts"
+      "./pi-indicator.ts"
     ]
   }
 }
