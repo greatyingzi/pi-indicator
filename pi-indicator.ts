@@ -615,7 +615,7 @@ class RacerAnimation {
 
     // Spawn enemies
     this.spawnTimer++;
-    const interval = Math.max(3, 8 - Math.min(Math.floor(this.overtakes / 4), 5));
+    const interval = Math.max(4, 10 - Math.min(Math.floor(this.overtakes / 5), 6));
     if (this.spawnTimer >= interval) {
       this.spawnTimer = 0;
       const lane = Math.floor(Math.random() * 2);
@@ -633,16 +633,29 @@ class RacerAnimation {
     }
     this.enemies = survived;
 
-    // AI dodge
+    // ── Smart AI ──
     const pc = PLAYER_COL;
-    const threats = this.enemies
-      .filter(e => e[0] === this.playerLane && e[1] <= pc + CAR_W && e[1] + CAR_W >= pc);
-    if (threats.length > 0) {
-      const other = 1 - this.playerLane;
-      if (!this.enemies.some(oe =>
-        oe[0] === other && oe[1] <= pc + CAR_W + 2 && oe[1] + CAR_W >= pc - 1)) {
-        this.playerLane = other;
+    const LOOKAHEAD = 12;
+
+    const laneClearance = (lane: number): number => {
+      let best = LOOKAHEAD + 1;
+      for (const e of this.enemies) {
+        if (e[0] !== lane) continue;
+        const frontGap = e[1] - (pc + CAR_W);
+        if (frontGap >= 0) best = Math.min(best, frontGap);
       }
+      return best;
+    };
+
+    const curClear = laneClearance(this.playerLane);
+    const other = 1 - this.playerLane;
+    const otherClear = laneClearance(other);
+
+    // Don't switch into an overlapping enemy
+    const blocked = this.enemies.some(oe =>
+      oe[0] === other && oe[1] + CAR_W > pc && oe[1] < pc + CAR_W + 2);
+    if (!blocked && otherClear > curClear + 1) {
+      this.playerLane = other;
     }
 
     // Collision

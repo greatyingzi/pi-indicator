@@ -592,7 +592,7 @@ class RacerAnimation:
 
         # Spawn enemies
         self.spawn_timer += 1
-        interval = max(3, 8 - min(self.overtakes // 4, 5))
+        interval = max(4, 10 - min(self.overtakes // 5, 6))
         if self.spawn_timer >= interval:
             self.spawn_timer = 0
             lane = random.randint(0, 1)
@@ -607,16 +607,35 @@ class RacerAnimation:
             else: survived.append(e)
         self.enemies = survived
 
-        # AI dodge
+        # ── Smart AI ──
         pc = self.PLAYER_COL
         cw = self.CAR_W
-        threats = [e for e in self.enemies
-                   if e[0] == self.player_lane and e[1] <= pc + cw and e[1] + cw >= pc]
-        if threats:
-            other = 1 - self.player_lane
-            if not any(oe[0] == other and oe[1] <= pc + cw + 2 and oe[1] + cw >= pc - 1
-                       for oe in self.enemies):
-                self.player_lane = other
+        LOOKAHEAD = 12
+
+        def lane_clearance(lane):
+            """How far ahead until the first enemy in this lane.
+            Returns large number if lane is clear."""
+            best = LOOKAHEAD + 1
+            for e in self.enemies:
+                if e[0] != lane: continue
+                # enemy occupies [e[1], e[1]+cw)
+                # player occupies [pc, pc+cw)
+                front_gap = e[1] - (pc + cw)  # >0 means enemy ahead
+                if front_gap >= 0:
+                    best = min(best, front_gap)
+                # else: enemy already overlapping/past — ignore (we'll catch in collision)
+            return best
+
+        cur_clear = lane_clearance(self.player_lane)
+        other = 1 - self.player_lane
+        other_clear = lane_clearance(other)
+
+        # Don't switch into an overlapping enemy
+        blocked = any(oe[0] == other and oe[1] + cw > pc and oe[1] < pc + cw + 2
+                      for oe in self.enemies)
+        if not blocked and other_clear > cur_clear + 1:
+            # Only switch if other lane is meaningfully better (>1 col margin)
+            self.player_lane = other
 
         # Collision
         p_off = self._off(self.player_lane)
