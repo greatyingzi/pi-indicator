@@ -412,6 +412,31 @@ function stopAnimation() {
   globalState = null;
 }
 
+// ─── Persistence ────────────────────────────────────────────────────
+// Save/load the user's preferred animation to ~/.pi/snake-anim
+
+import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import { join } from "path";
+import { homedir } from "os";
+
+const PREF_DIR = join(homedir(), ".pi");
+const PREF_FILE = join(PREF_DIR, "snake-anim");
+
+function loadPref(): AnimType {
+  try {
+    const val = readFileSync(PREF_FILE, "utf8").trim();
+    if ((ANIM_LIST as { id: string }[]).some(a => a.id === val)) return val as AnimType;
+  } catch {}
+  return "snake";
+}
+
+function savePref(type: AnimType) {
+  try {
+    mkdirSync(PREF_DIR, { recursive: true });
+    writeFileSync(PREF_FILE, type);
+  } catch {}
+}
+
 // ─── Extension Entry ────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
@@ -420,7 +445,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     if (!ctx.hasUI) return;
     uiCtx = ctx.ui;
-    startAnimation("snake", ctx);
+    startAnimation(loadPref(), ctx);
   });
 
   pi.on("session_shutdown", async () => {
@@ -441,6 +466,7 @@ export default function (pi: ExtensionAPI) {
         if (found) {
           stopAnimation();
           startAnimation(found.id, { ui, hasUI: true, signal: undefined } as any);
+          savePref(found.id);
           ui.notify(`Switched to ${found.label}`);
           return;
         }
@@ -464,6 +490,7 @@ export default function (pi: ExtensionAPI) {
       if (selected) {
         stopAnimation();
         startAnimation(selected.id, { ui, hasUI: true, signal: undefined } as any);
+        savePref(selected.id);
       }
     },
   });
