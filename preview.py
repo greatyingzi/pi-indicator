@@ -298,6 +298,116 @@ class EqualizerAnimation:
         return to_braille(grid)
 
 
+# ─── 5. Invaders Animation ──────────────────────────────────────────
+
+class InvadersAnimation:
+    def __init__(self):
+        self.player_col = 7
+        self.player_dir = 1
+        self.aliens = set()
+        self.alien_dir = 1
+        self.alien_timer = 0
+        self.bullets = []
+        self.shoot_timer = 0
+        self._spawn_aliens()
+
+    def _spawn_aliens(self):
+        self.aliens.clear()
+        for c in range(1, 15, 2):
+            self.aliens.add(f"0,{c}")
+        for c in range(2, 14, 2):
+            self.aliens.add(f"1,{c}")
+
+    def tick(self):
+        self.alien_timer += 1
+        self.shoot_timer += 1
+
+        # Player patrol
+        self.player_col += self.player_dir
+        if self.player_col >= W - 3:
+            self.player_dir = -1
+        elif self.player_col <= 0:
+            self.player_dir = 1
+
+        # Auto-shoot
+        if self.shoot_timer >= 4:
+            self.shoot_timer = 0
+            self.bullets.append([H - 2, self.player_col + 1])
+
+        # Move bullets
+        new_bullets = []
+        for b in self.bullets:
+            b[0] -= 1
+            if b[0] >= 0:
+                key = f"{b[0]},{b[1]}"
+                if key in self.aliens:
+                    self.aliens.discard(key)
+                else:
+                    new_bullets.append(b)
+        self.bullets = new_bullets
+
+        # Move aliens
+        if self.alien_timer >= 8:
+            self.alien_timer = 0
+            if self.aliens:
+                min_c = min(int(k.split(",")[1]) for k in self.aliens)
+                max_c = max(int(k.split(",")[1]) for k in self.aliens)
+                shift_down = False
+                if self.alien_dir > 0 and max_c >= W - 2:
+                    self.alien_dir = -1; shift_down = True
+                elif self.alien_dir < 0 and min_c <= 1:
+                    self.alien_dir = 1; shift_down = True
+                new_aliens = set()
+                for key in self.aliens:
+                    r, c = map(int, key.split(","))
+                    if shift_down: r += 1
+                    else: c += self.alien_dir
+                    if 0 <= r < H and 0 <= c < W:
+                        new_aliens.add(f"{r},{c}")
+                self.aliens = new_aliens
+
+            if not self.aliens or any(int(k.split(",")[0]) >= H - 1 for k in self.aliens):
+                self._spawn_aliens()
+
+        # Render with colors
+        SHIP = "\x1b[38;5;46m"
+        ALIEN = "\x1b[38;5;196m"
+        BULLET = "\x1b[38;5;226m"
+
+        ship_dots = set()
+        for dc in range(3):
+            pc = self.player_col + dc
+            if 0 <= pc < W:
+                ship_dots.add(f"3,{pc}")
+        alien_dots = set(self.aliens)
+        bullet_dots = set(f"{b[0]},{b[1]}" for b in self.bullets if 0 <= b[0] < H)
+
+        parts = []
+        for cx in range(0, W, 2):
+            val = 0
+            has_ship = has_alien = has_bullet = False
+            for r in range(H):
+                for c in range(2):
+                    gk = f"{r},{cx + c}"
+                    if gk in ship_dots or gk in alien_dots or gk in bullet_dots:
+                        val |= DOT_MAP[(r, c)]
+                    if gk in ship_dots: has_ship = True
+                    if gk in alien_dots: has_alien = True
+                    if gk in bullet_dots: has_bullet = True
+            ch = chr_braille(val)
+            if val == 0:
+                parts.append(EMPTY_BRAILLE)
+            elif has_alien and not has_ship and not has_bullet:
+                parts.append(f"{ALIEN}{ch}{RESET}")
+            elif has_bullet and not has_ship and not has_alien:
+                parts.append(f"{BULLET}{ch}{RESET}")
+            elif has_ship and not has_alien and not has_bullet:
+                parts.append(f"{SHIP}{ch}{RESET}")
+            else:
+                parts.append(ch)
+        return "".join(parts)
+
+
 # ─── Terminal runner ─────────────────────────────────────────────────
 
 ANIM_DEFS = [
@@ -305,6 +415,7 @@ ANIM_DEFS = [
     ("breakout",   "Breakout 🧱",   BreakoutAnimation,   0.100),
     ("pacman",     "Pac-Man 👾",    PacManAnimation,     0.140),
     ("equalizer",  "Equalizer 📊",  EqualizerAnimation,  0.150),
+    ("invaders",   "Invaders 🛸",   InvadersAnimation,   0.120),
 ]
 
 
