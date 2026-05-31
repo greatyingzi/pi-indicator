@@ -272,10 +272,9 @@ class PacManAnimation {
       s.add("0,2"); s.add("3,2");
       s.add("0,3"); s.add("3,3");
     } else {
-      // Col 1: rows 0,1,2,3 (full body)
+      // Col 1,2: all 4 rows (full body)
       s.add("0,1"); s.add("1,1"); s.add("2,1"); s.add("3,1");
-      // Col 2: row 3
-      s.add("3,2");
+      s.add("0,2"); s.add("1,2"); s.add("2,2"); s.add("3,2");
       // Col 3: rows 1,2
       s.add("1,3"); s.add("2,3");
     }
