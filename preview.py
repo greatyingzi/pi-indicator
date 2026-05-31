@@ -628,7 +628,7 @@ class RacerAnimation:
     def __init__(self):
         self.player_lane = 0
         self.npcs: list[RacerNPC] = []
-        self.spawn_timer = 0
+        self.spawn_timer = 12  # start near interval so first NPC appears quickly
         self.ticks = 0
         self.exploding = 0  # frames remaining for explosion
         self.explode_col = 0  # explosion column

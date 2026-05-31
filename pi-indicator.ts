@@ -629,7 +629,7 @@ interface RacerNPCData {
 class RacerAnimation {
   private playerLane = 0;
   private npcs: RacerNPCData[] = [];
-  private spawnTimer = 0;
+  private spawnTimer = 12; // start near interval so first NPC appears quickly
   private ticks = 0;
   private exploding = 0;   // frames remaining for explosion
   private explodeCol = 0;  // explosion column
