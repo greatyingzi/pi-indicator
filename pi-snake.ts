@@ -249,127 +249,74 @@ class BreakoutAnimation {
   }
 }
 
-// ─── 3. Pac-Man Animation (side-scrolling) ─────────────────────────
-// Pac-Man is a bright yellow dot eating its way right through a field of dots.
-// 2 colored ghosts chase from behind. Dots scroll in from the right.
+// ─── 3. Pac-Man Animation ──────────────────────────────────────────
+// Pac-Man sits at col 3, opens/closes mouth. Dots float in from the right.
+// When a dot reaches pac-man, it gets eaten.
 
 class PacManAnimation {
-  // Pac-Man world position (viewport slides right)
-  private worldCol: number = 5;
-  private pacRow: number = 2;
-  private mouthPhase: number = 0;
-
-  // Dots in world coords
-  private dots: Set<string> = new Set();
-
-  // Ghosts: world positions
-  private ghosts: { r: number; wc: number; color: string }[];
-
-  constructor() {
-    // Generate initial dots
-    for (let wc = 0; wc < W + 10; wc++) {
-      for (let r = 0; r < H; r++) {
-        if ((wc + r) % 2 === 0) this.dots.add(`${r},${wc}`);
-      }
-    }
-    this.ghosts = [
-      { r: 1, wc: this.worldCol - 7, color: "\x1b[38;5;196m" },  // red
-      { r: 3, wc: this.worldCol - 10, color: "\x1b[38;5;214m" }, // orange
-    ];
-  }
+  private mouthOpen: boolean = true;
+  private dots: number[] = []; // each dot is just a column position
+  private spawnTimer: number = 0;
 
   tick(): string {
-    this.mouthPhase++;
+    this.mouthOpen = !this.mouthOpen;
+    this.spawnTimer++;
 
-    // Pac-Man wobbles between rows occasionally
-    if (this.mouthPhase % 8 === 0) {
-      const newR = this.pacRow + (Math.random() < 0.5 ? 1 : -1);
-      if (newR >= 0 && newR < H) this.pacRow = newR;
+    // Spawn a dot from the right every 3-4 ticks
+    if (this.spawnTimer >= 3) {
+      this.spawnTimer = 0;
+      this.dots.push(W - 1);
     }
 
-    // Move pac-man right
-    this.worldCol++;
-
-    // Eat dots
-    for (let dc = -1; dc <= 1; dc++) {
-      this.dots.delete(`${this.pacRow},${this.worldCol + dc}`);
+    // Move all dots left
+    for (let i = 0; i < this.dots.length; i++) {
+      this.dots[i]--;
     }
 
-    // Spawn new dots ahead
-    const ahead = this.worldCol + W + 2;
-    for (let r = 0; r < H; r++) {
-      if ((ahead + r) % 2 === 0) this.dots.add(`${r},${ahead}`);
-    }
+    // Remove dots that reached pac-man (col 3) or went past
+    this.dots = this.dots.filter(d => d > 3);
 
-    // Move ghosts toward pac-man
-    for (const g of this.ghosts) {
-      g.wc += 0.85; // slightly slower than pac-man so they chase
-      if (g.r < this.pacRow) g.r += 0.3;
-      else if (g.r > this.pacRow) g.r -= 0.3;
-      g.r = Math.max(0, Math.min(H - 1, g.r));
-    }
-
-    return this.buildFrame();
-  }
-
-  private buildFrame(): string {
+    // Render
     const grid = new Set<string>();
     const pacColored = new Set<string>();
-    const ghostColored = new Set<string>();
 
-    // Viewport: worldCol is pac-man's position, render cols [worldCol-2 .. worldCol+5]
-    const viewLeft = this.worldCol - 4;
-
-    // Dots
-    for (const key of this.dots) {
-      const [r, wc] = key.split(",").map(Number);
-      const vc = wc - viewLeft;
-      if (vc >= 0 && vc < W) grid.add(`${r},${vc}`);
-    }
-
-    // Pac-Man: always at viewport col 4
-    const pacKey = `${this.pacRow},4`;
+    // Pac-Man at row 2, col 3 (always)
+    // When mouth open: show pac-man + nothing to its right
+    // When mouth closed: just pac-man
+    const pacKey = "2,3";
     grid.add(pacKey);
     pacColored.add(pacKey);
 
-    // Ghosts
-    for (const g of this.ghosts) {
-      const vc = Math.round(g.wc - viewLeft);
-      const gr = Math.round(g.r);
-      if (vc >= 0 && vc < W && gr >= 0 && gr < H) {
-        const gKey = `${gr},${vc}`;
-        grid.add(gKey);
-        ghostColored.add(gKey);
-      }
+    // Dots at row 2
+    for (const d of this.dots) {
+      grid.add(`2,${d}`);
     }
 
-    // Build string: pac-man yellow, ghosts red (first ghost color)
-    // Need char-by-char rendering
-    const PAC_COLOR = "\x1b[38;5;226m"; // yellow
-    const GHOST_COLOR = "\x1b[38;5;196m"; // red
+    // Build with pac-man yellow
+    const PAC_COLOR = "\x1b[38;5;226m";
+    const DOT_COLOR = "\x1b[38;5;51m"; // cyan dots
 
     const parts: string[] = [];
     for (let cx = 0; cx < W; cx += 2) {
       let val = 0;
       let hasPac = false;
-      let hasGhost = false;
+      let hasDot = false;
 
       for (let r = 0; r < H; r++) {
         for (let c = 0; c < 2; c++) {
           const gk = `${r},${cx + c}`;
-          const lk = `${r},${c}`;
-          if (grid.has(gk)) val |= DOT_MAP[lk];
+          if (grid.has(gk)) val |= DOT_MAP[`${r},${c}`];
           if (pacColored.has(gk)) hasPac = true;
-          if (ghostColored.has(gk)) hasGhost = true;
+          // Check if this cell is a dot (not pac)
+          if (grid.has(gk) && !pacColored.has(gk)) hasDot = true;
         }
       }
 
       const ch = String.fromCharCode(BRAILLE_OFFSET + val);
-
-      if (hasPac && !hasGhost) {
+      if (hasPac && !hasDot) {
         parts.push(`${PAC_COLOR}${ch}${RESET}`);
-      } else if (hasGhost && !hasPac) {
-        parts.push(`${GHOST_COLOR}${ch}${RESET}`);
+      } else if (hasDot && !hasPac) {
+        parts.push(`${DOT_COLOR}${ch}${RESET}`);
       } else {
         parts.push(ch);
       }
