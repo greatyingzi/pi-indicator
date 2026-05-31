@@ -262,36 +262,8 @@ class PacManAnimation:
         return "".join(parts)
 
 
-# ─── 4. Wave Animation ──────────────────────────────────────────────
 
-class WaveAnimation:
-    def __init__(self):
-        self.t = 0
-
-    def tick(self):
-        grid = set()
-        colored = set()
-        # 3 waves with different colors
-        waves = [
-            (0.9, 1.2, 2.0, "\x1b[38;5;51m"),   # cyan
-            (0.5, 0.8, 1.5, "\x1b[38;5;213m"),   # pink
-            (1.3, 0.5, 2.5, "\x1b[38;5;226m"),   # yellow
-        ]
-        for freq, amp, offset, color in waves:
-            for c in range(W):
-                y = math.sin((c + self.t) * freq) * amp + offset
-                r = round(y)
-                if 0 <= r < H:
-                    grid.add(f"{r},{c}")
-                    colored.add(f"{r},{c}")
-
-        self.t += 0.4
-        # All dots are colored — use the last wave color per char
-        # Simpler: just render as plain braille
-        return to_braille(grid)
-
-
-# ─── 5. Equalizer Animation ─────────────────────────────────────────
+# ─── 4. Equalizer Animation ─────────────────────────────────────────
 
 class EqualizerAnimation:
     def __init__(self):
@@ -326,168 +298,13 @@ class EqualizerAnimation:
         return to_braille(grid)
 
 
-# ─── 6. Fireworks Animation ─────────────────────────────────────────
-
-class FireworksAnimation:
-    def __init__(self):
-        self.phase = "charge"  # charge -> burst -> fade -> charge
-        self.phase_timer = 0
-        self.charge_y = H - 1  # rising from bottom
-        self.cx = random.randint(3, W - 4)  # center x
-        self.particles = []  # (r, c, vr, vc, life)
-
-    def tick(self):
-        self.phase_timer += 1
-
-        if self.phase == "charge":
-            self.charge_y -= 0.15
-            if self.charge_y <= 1.5:
-                self.phase = "burst"
-                self.phase_timer = 0
-                # Spawn particles
-                for _ in range(12):
-                    angle = random.uniform(0, math.pi * 2)
-                    speed = random.uniform(0.15, 0.5)
-                    self.particles.append([
-                        self.charge_y, float(self.cx),
-                        math.sin(angle) * speed,
-                        -math.cos(angle) * speed,
-                        random.randint(8, 14),
-                    ])
-
-        elif self.phase == "burst":
-            for p in self.particles:
-                p[0] += p[2]  # r += vr
-                p[1] += p[3]  # c += vc
-                p[2] += 0.02  # gravity
-                p[4] -= 1     # life
-            self.particles = [p for p in self.particles if p[4] > 0]
-            if not self.particles:
-                self.phase = "fade"
-                self.phase_timer = 0
-
-        elif self.phase == "fade":
-            if self.phase_timer > 8:
-                self.phase = "charge"
-                self.charge_y = H - 1
-                self.cx = random.randint(3, W - 4)
-
-        # Render
-        grid = set()
-        colored = set()
-        if self.phase == "charge":
-            r = round(self.charge_y)
-            if 0 <= r < H:
-                grid.add(f"{r},{self.cx}")
-                colored.add(f"{r},{self.cx}")
-
-        for p in self.particles:
-            r, c = round(p[0]), round(p[1])
-            if 0 <= r < H and 0 <= c < W:
-                grid.add(f"{r},{c}")
-                colored.add(f"{r},{c}")
-
-        return to_braille_colored(grid, colored, "\x1b[38;5;226m")
-
-
-# ─── 7. Heartbeat Animation ─────────────────────────────────────────
-
-class HeartbeatAnimation:
-    def __init__(self):
-        # ECG waveform: flat=0, small bump=1, big spike=2
-        # One cycle: 20 samples
-        self.waveform = (
-            [0] * 4 +           # flat
-            [0, 1, 0] +         # P wave
-            [0] * 2 +           # flat
-            [-1, -2, 3, -1] +   # QRS complex (big spike)
-            [0] * 2 +           # flat
-            [0, 1, 0] +         # T wave
-            [0] * 3             # flat
-        )  # total = 20
-        self.offset = 0.0
-
-    def tick(self):
-        self.offset += 0.3
-        grid = set()
-        colored = set()
-        for c in range(W):
-            idx = int(self.offset + c) % len(self.waveform)
-            val = self.waveform[idx]
-            # Map val to row: 0->row2(baseline), positive->row1, big positive->row0, negative->row3
-            if val == 0:
-                r = 2
-            elif val == 1:
-                r = 1
-            elif val == 2:
-                r = 0
-            elif val == 3:
-                r = 0
-            elif val == -1:
-                r = 3
-            elif val == -2:
-                r = 3
-            else:
-                r = 2
-            grid.add(f"{r},{c}")
-            colored.add(f"{r},{c}")
-
-        return to_braille_colored(grid, colored, "\x1b[38;5;196m")
-
-
-# ─── 8. Starfield Animation ─────────────────────────────────────────
-
-class StarfieldAnimation:
-    def __init__(self):
-        self.stars = []
-        for _ in range(7):
-            self.stars.append({
-                "r": random.random() * (H - 1),
-                "c": random.random() * (W - 1),
-                "vr": (random.random() - 0.5) * 0.08,
-                "vc": (random.random() - 0.5) * 0.08,
-                "phase": random.random() * math.pi * 2,
-                "speed": 0.05 + random.random() * 0.08,
-            })
-
-    def tick(self):
-        grid = set()
-        for s in self.stars:
-            s["r"] += s["vr"]
-            s["c"] += s["vc"]
-            s["phase"] += s["speed"]
-
-            # Soft bounds
-            if s["r"] < 0: s["r"] = 0; s["vr"] = abs(s["vr"])
-            if s["r"] > H - 1: s["r"] = H - 1; s["vr"] = -abs(s["vr"])
-            if s["c"] < 0: s["c"] = 0; s["vc"] = abs(s["vc"])
-            if s["c"] > W - 1: s["c"] = W - 1; s["vc"] = -abs(s["vc"])
-
-            # Occasional direction change
-            if random.random() < 0.03:
-                s["vr"] = (random.random() - 0.5) * 0.08
-                s["vc"] = (random.random() - 0.5) * 0.08
-
-            brightness = math.sin(s["phase"])
-            if brightness > 0.2:
-                r, c = round(s["r"]), round(s["c"])
-                if 0 <= r < H and 0 <= c < W:
-                    grid.add(f"{r},{c}")
-
-        return to_braille(grid)
-
-
 # ─── Terminal runner ─────────────────────────────────────────────────
 
 ANIM_DEFS = [
     ("snake",      "Snake 🐍",      SnakeAnimation,      0.120),
     ("breakout",   "Breakout 🧱",   BreakoutAnimation,   0.100),
     ("pacman",     "Pac-Man 👾",    PacManAnimation,     0.140),
-    ("wave",       "Wave 🌊",       WaveAnimation,       0.100),
     ("equalizer",  "Equalizer 📊",  EqualizerAnimation,  0.150),
-    ("fireworks",  "Fireworks 🎆",  FireworksAnimation,  0.080),
-    ("heartbeat",  "Heartbeat ❤️",  HeartbeatAnimation,  0.100),
-    ("starfield",  "Starfield ✨",  StarfieldAnimation,  0.200),
 ]
 
 
