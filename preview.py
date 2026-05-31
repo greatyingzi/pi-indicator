@@ -66,6 +66,57 @@ def to_braille_2line(grid, W2=None):
     return "\n".join(lines)
 
 
+def to_braille_colored(color_map):
+    """Render color_map {(row,col): ansi_color} to colored braille string (16x4)."""
+    parts = []
+    for cx in range(0, W, 2):
+        val = 0
+        best_color = None
+        for r in range(H):
+            for c in range(2):
+                pos = (r, cx + c)
+                if pos in color_map:
+                    val |= DOT_MAP[(r, c)]
+                    if best_color is None:
+                        best_color = color_map[pos]
+        if val == 0:
+            parts.append(" ")
+        else:
+            ch = chr_braille(val)
+            if best_color:
+                parts.append(f"{best_color}{ch}{RESET}")
+            else:
+                parts.append(ch)
+    return "".join(parts)
+
+
+def to_braille_2line_colored(color_map):
+    """Render color_map {(row,col): ansi_color} as two-line colored braille (16x8)."""
+    lines = []
+    for half in range(2):
+        parts = []
+        for cx in range(0, W, 2):
+            val = 0
+            best_color = None
+            for r in range(4):
+                for c in range(2):
+                    pos = (r + half * 4, cx + c)
+                    if pos in color_map:
+                        val |= DOT_MAP[(r, c)]
+                        if best_color is None:
+                            best_color = color_map[pos]
+            if val == 0:
+                parts.append(" ")
+            else:
+                ch = chr_braille(val)
+                if best_color:
+                    parts.append(f"{best_color}{ch}{RESET}")
+                else:
+                    parts.append(ch)
+        lines.append("".join(parts))
+    return "\n".join(lines)
+
+
 # ─── 1. Snake Animation ─────────────────────────────────────────────
 
 def random_food(snake):
@@ -121,9 +172,18 @@ class SnakeAnimation:
             self.food = random_food(self.snake)
         else:
             self.snake.pop()
-        grid = set(self.snake)
-        grid.add(self.food)
-        return to_braille(grid)
+        color_map = {}
+        # Head (bright green)
+        hr, hc = map(int, self.snake[0].split(","))
+        color_map[(hr, hc)] = "\x1b[38;5;118m"
+        # Body (green)
+        for pos in self.snake[1:]:
+            r, c = map(int, pos.split(","))
+            color_map[(r, c)] = "\x1b[38;5;34m"
+        # Food (red)
+        fr, fc = map(int, self.food.split(","))
+        color_map[(fr, fc)] = "\x1b[38;5;196m"
+        return to_braille_colored(color_map)
 
 
 # ─── 2. Breakout Animation ──────────────────────────────────────────
@@ -183,11 +243,23 @@ class BreakoutAnimation:
         return self._build_frame()
 
     def _build_frame(self):
-        grid = set(self.bricks)
-        grid.add(f"{self.paddle},{W - 1}")
-        grid.add(f"{self.paddle + 1},{W - 1}")
-        grid.add(f"{round(self.br)},{round(self.bc)}")
-        return to_braille(grid)
+        color_map = {}
+        # Bricks — color by row
+        BRICK_COLORS = {
+            0: "\x1b[38;5;226m",  # yellow
+            1: "\x1b[38;5;214m",  # orange
+            2: "\x1b[38;5;196m",  # red
+            3: "\x1b[38;5;196m",  # red
+        }
+        for key in self.bricks:
+            r, c = map(int, key.split(","))
+            color_map[(r, c)] = BRICK_COLORS.get(r, "\x1b[38;5;196m")
+        # Paddle (white)
+        color_map[(self.paddle, W - 1)] = "\x1b[38;5;252m"
+        color_map[(self.paddle + 1, W - 1)] = "\x1b[38;5;252m"
+        # Ball (bright cyan)
+        color_map[(round(self.br), round(self.bc))] = "\x1b[38;5;51m"
+        return to_braille_colored(color_map)
 
 
 # ─── 3. Pac-Man Animation ──────────────────────────────────────────
@@ -218,12 +290,18 @@ class PacManAnimation:
         self.dots = [d - 1 for d in self.dots]
         self.dots = [d for d in self.dots if d > 4]
 
-        grid = set()
-        grid.update(self._get_pac_dots())
+        color_map = {}
+        # Pac-Man (yellow)
+        pac_color = "\x1b[38;5;226m"
+        for pos in self._get_pac_dots():
+            r, c = map(int, pos.split(","))
+            color_map[(r, c)] = pac_color
+        # Dots (cyan)
+        dot_color = "\x1b[38;5;51m"
         for d in self.dots:
-            grid.add(f"2,{d}")
+            color_map[(2, d)] = dot_color
 
-        return to_braille(grid)
+        return to_braille_colored(color_map)
 
 
 
@@ -250,16 +328,23 @@ class EqualizerAnimation:
             self.heights[i] += diff * 0.25
 
         # Render
-        grid = set()
+        color_map = {}
         for i in range(8):
             h = round(self.heights[i])
+            # Color by height: low=green, mid=yellow, high=red
+            if h <= 2:
+                bar_color = "\x1b[38;5;46m"
+            elif h == 3:
+                bar_color = "\x1b[38;5;226m"
+            else:
+                bar_color = "\x1b[38;5;196m"
             for row in range(H):
                 # Fill from bottom: row 3 is bottom, row 0 is top
                 if row >= (H - h):
-                    grid.add(f"{row},{i * 2}")
-                    grid.add(f"{row},{i * 2 + 1}")
+                    color_map[(row, i * 2)] = bar_color
+                    color_map[(row, i * 2 + 1)] = bar_color
 
-        return to_braille(grid)
+        return to_braille_colored(color_map)
 
 
 # ─── 5. Cat Animation (SVG-converted 5-frame pixel, no color) ──
@@ -307,8 +392,12 @@ class CatAnimation:
         self.frame_idx = (self.frame_idx + 1) % len(self.FRAMES)
         pixels = self.FRAMES[self.frame_idx]
 
-        # Convert pixel tuples to (row, col) set for to_braille_2line
-        return to_braille_2line(pixels)
+        # Convert pixel tuples to colored braille
+        color_map = {}
+        cat_color = "\x1b[38;5;226m"
+        for (r, c) in pixels:
+            color_map[(r, c)] = cat_color
+        return to_braille_2line_colored(color_map)
 
 
 # ─── 6. Heart Animation (heartbeat, 16x8 two-line) ────────────────
@@ -350,7 +439,12 @@ class HeartAnimation:
         frame_idx = self.TIMING[self.phase % len(self.TIMING)]
         pixels = self.FRAMES[frame_idx]
 
-        return to_braille_2line(pixels)
+        color_map = {}
+        # Bright red when beating, darker red when resting
+        heart_color = "\x1b[38;5;203m" if frame_idx == 1 else "\x1b[38;5;196m"
+        for (r, c) in pixels:
+            color_map[(r, c)] = heart_color
+        return to_braille_2line_colored(color_map)
 
 
 # ─── 7. Wave Animation (flowing sine, 16x8 two-line) ───────────────
@@ -545,15 +639,23 @@ class InvadersAnimation:
                 self._spawn_aliens()
 
         # Render
-        grid = set()
-        grid.add(f"{self.ship_row},0")
-        grid.add(f"{self.ship_row},1")
-        grid.update(self.aliens)
+        color_map = {}
+        # Ship (green)
+        ship_color = "\x1b[38;5;46m"
+        color_map[(self.ship_row, 0)] = ship_color
+        color_map[(self.ship_row, 1)] = ship_color
+        # Aliens (red)
+        alien_color = "\x1b[38;5;196m"
+        for key in self.aliens:
+            r, c = map(int, key.split(","))
+            color_map[(r, c)] = alien_color
+        # Bullets (yellow)
+        bullet_color = "\x1b[38;5;226m"
         for b in self.bullets:
             if 0 <= b[1] < W:
-                grid.add(f"{b[0]},{b[1]}")
+                color_map[(b[0], b[1])] = bullet_color
 
-        return to_braille(grid)
+        return to_braille_colored(color_map)
 
 
 # ─── 10. Racer Animation (Road Fighter, 2-lane, colored, 16x8) ──
@@ -938,7 +1040,7 @@ ANIM_DEFS = [
     ("cat",        "Cat 🐱",        CatAnimation,        0.160),
     ("heart",      "Heart ❤️",      HeartAnimation,      0.200),
     ("invaders",   "Invaders 🛸",   InvadersAnimation,   0.120),
-    ("racer",      "Racer 🏎️",     RacerAnimation,      0.120),
+    # ("racer",      "Racer 🏎️",     RacerAnimation,      0.120),  # TODO: rework
 ]
 
 

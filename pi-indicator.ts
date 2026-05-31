@@ -49,6 +49,60 @@ function toBraille2Line(grid: Set<string>): string {
   return lines.join("\n");
 }
 
+function toBrailleColored(colorMap: Map<string, string>): string {
+  const parts: string[] = [];
+  for (let cx = 0; cx < W; cx += 2) {
+    let val = 0;
+    let bestColor: string | null = null;
+    for (let r = 0; r < H; r++) {
+      for (let c = 0; c < 2; c++) {
+        const key = `${r},${cx + c}`;
+        if (colorMap.has(key)) {
+          val |= DOT_MAP[`${r},${c}`];
+          if (bestColor === null) bestColor = colorMap.get(key)!;
+        }
+      }
+    }
+    if (val === 0) {
+      parts.push(" ");
+    } else {
+      const ch = String.fromCharCode(BRAILLE_OFFSET + val);
+      if (bestColor) parts.push(`${bestColor}${ch}${RESET}`);
+      else parts.push(ch);
+    }
+  }
+  return parts.join("");
+}
+
+function toBraille2LineColored(colorMap: Map<string, string>): string {
+  const lines: string[] = [];
+  for (let half = 0; half < 2; half++) {
+    const parts: string[] = [];
+    for (let cx = 0; cx < W; cx += 2) {
+      let val = 0;
+      let bestColor: string | null = null;
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 2; c++) {
+          const key = `${r + half * 4},${cx + c}`;
+          if (colorMap.has(key)) {
+            val |= DOT_MAP[`${r},${c}`];
+            if (bestColor === null) bestColor = colorMap.get(key)!;
+          }
+        }
+      }
+      if (val === 0) {
+        parts.push(" ");
+      } else {
+        const ch = String.fromCharCode(BRAILLE_OFFSET + val);
+        if (bestColor) parts.push(`${bestColor}${ch}${RESET}`);
+        else parts.push(ch);
+      }
+    }
+    lines.push(parts.join(""));
+  }
+  return lines.join("\n");
+}
+
 // ─── 1. Snake Animation ─────────────────────────────────────────────
 
 const DIRS = [[0, 1], [0, -1], [1, 0], [-1, 0]];
@@ -115,9 +169,16 @@ class SnakeAnimation {
     } else {
       this.snake.pop();
     }
-    const grid = new Set(this.snake);
-    grid.add(this.food);
-    return toBraille(grid);
+    const colorMap = new Map<string, string>();
+    // Head (bright green)
+    colorMap.set(this.snake[0], "\x1b[38;5;118m");
+    // Body (green)
+    for (let i = 1; i < this.snake.length; i++) {
+      colorMap.set(this.snake[i], "\x1b[38;5;34m");
+    }
+    // Food (red)
+    colorMap.set(this.food, "\x1b[38;5;196m");
+    return toBrailleColored(colorMap);
   }
 }
 
@@ -216,14 +277,24 @@ class BreakoutAnimation {
   }
 
   private buildFrame(): string {
-    const grid = new Set<string>(this.bricks);
-    // Paddle
-    grid.add(`${this.paddle},${W - 1}`);
-    grid.add(`${this.paddle + 1},${W - 1}`);
-    // Ball
-    grid.add(`${Math.round(this.br)},${Math.round(this.bc)}`);
-
-    return toBraille(grid);
+    const colorMap = new Map<string, string>();
+    const brickColors: Record<number, string> = {
+      0: "\x1b[38;5;226m",  // yellow
+      1: "\x1b[38;5;214m",  // orange
+      2: "\x1b[38;5;196m",  // red
+      3: "\x1b[38;5;196m",  // red
+    };
+    // Bricks
+    for (const key of this.bricks) {
+      const r = parseInt(key.split(",")[0], 10);
+      colorMap.set(key, brickColors[r] || "\x1b[38;5;196m");
+    }
+    // Paddle (white)
+    colorMap.set(`${this.paddle},${W - 1}`, "\x1b[38;5;252m");
+    colorMap.set(`${this.paddle + 1},${W - 1}`, "\x1b[38;5;252m");
+    // Ball (bright cyan)
+    colorMap.set(`${Math.round(this.br)},${Math.round(this.bc)}`, "\x1b[38;5;51m");
+    return toBrailleColored(colorMap);
   }
 }
 
@@ -280,18 +351,17 @@ class PacManAnimation {
     this.dots = this.dots.filter(d => d > 4);
 
     // Render
-    const grid = new Set<string>();
-    const pacDots = this.getPacDots();
-
-    // Pac-Man
-    for (const key of pacDots) grid.add(key);
-
-    // Dots at row 2 (middle)
+    const colorMap = new Map<string, string>();
+    // Pac-Man (yellow)
+    const pacColor = "\x1b[38;5;226m";
+    for (const key of this.getPacDots()) colorMap.set(key, pacColor);
+    // Dots (cyan)
+    const dotColor = "\x1b[38;5;51m";
     for (const d of this.dots) {
-      grid.add(`2,${d}`);
+      colorMap.set(`2,${d}`, dotColor);
     }
 
-    return toBraille(grid);
+    return toBrailleColored(colorMap);
   }
 }
 
@@ -322,19 +392,21 @@ class EqualizerAnimation {
     }
 
     // Render
-    const grid = new Set<string>();
+    const colorMap = new Map<string, string>();
     for (let i = 0; i < 8; i++) {
       const h = Math.round(this.heights[i]);
+      // Color by height: low=green, mid=yellow, high=red
+      const barColor = h <= 2 ? "\x1b[38;5;46m" : h === 3 ? "\x1b[38;5;226m" : "\x1b[38;5;196m";
       for (let row = 0; row < H; row++) {
         // Fill from bottom: row 3 is bottom, row 0 is top
         if (row >= H - h) {
-          grid.add(`${row},${i * 2}`);
-          grid.add(`${row},${i * 2 + 1}`);
+          colorMap.set(`${row},${i * 2}`, barColor);
+          colorMap.set(`${row},${i * 2 + 1}`, barColor);
         }
       }
     }
 
-    return toBraille(grid);
+    return toBrailleColored(colorMap);
   }
 }
 
@@ -470,15 +542,21 @@ class InvadersAnimation {
     }
 
     // Render
-    const grid = new Set<string>();
-    grid.add(`${this.shipRow},0`);
-    grid.add(`${this.shipRow},1`);
-    for (const key of this.aliens) grid.add(key);
+    const colorMap = new Map<string, string>();
+    // Ship (green)
+    const shipColor = "\x1b[38;5;46m";
+    colorMap.set(`${this.shipRow},0`, shipColor);
+    colorMap.set(`${this.shipRow},1`, shipColor);
+    // Aliens (red)
+    const alienColor = "\x1b[38;5;196m";
+    for (const key of this.aliens) colorMap.set(key, alienColor);
+    // Bullets (yellow)
+    const bulletColor = "\x1b[38;5;226m";
     for (const b of this.bullets) {
-      if (b[1] >= 0 && b[1] < W) grid.add(`${b[0]},${b[1]}`);
+      if (b[1] >= 0 && b[1] < W) colorMap.set(`${b[0]},${b[1]}`, bulletColor);
     }
 
-    return toBraille(grid);
+    return toBrailleColored(colorMap);
   }
 }
 
@@ -517,7 +595,11 @@ class HeartAnimation {
     const frameIdx = HEART_TIMING[this.phase % HEART_TIMING.length];
     const pixels = HEART_FRAMES[frameIdx];
 
-    return toBraille2Line(pixels);
+    const colorMap = new Map<string, string>();
+    // Bright red when beating, darker red when resting
+    const heartColor = frameIdx === 1 ? "\x1b[38;5;203m" : "\x1b[38;5;196m";
+    for (const key of pixels) colorMap.set(key, heartColor);
+    return toBraille2LineColored(colorMap);
   }
 }
 
@@ -569,7 +651,10 @@ class CatAnimation {
     this.frameIdx = (this.frameIdx + 1) % CAT_FRAMES.length;
     const pixels = CAT_FRAMES[this.frameIdx];
 
-    return toBraille2Line(pixels);
+    const colorMap = new Map<string, string>();
+    const catColor = "\x1b[38;5;226m";
+    for (const key of pixels) colorMap.set(key, catColor);
+    return toBraille2LineColored(colorMap);
   }
 }
 
@@ -954,7 +1039,7 @@ class RacerAnimation {
 
 // ─── Animation Engine ───────────────────────────────────────────────
 
-type AnimType = "snake" | "breakout" | "pacman" | "equalizer" | "invaders" | "heart" | "cat" | "racer";
+type AnimType = "snake" | "breakout" | "pacman" | "equalizer" | "invaders" | "heart" | "cat"; // | "racer" TODO rework
 
 const ANIM_LIST: { id: AnimType; label: string }[] = [
   { id: "snake", label: "Snake 🐍" },
@@ -964,7 +1049,7 @@ const ANIM_LIST: { id: AnimType; label: string }[] = [
   { id: "invaders", label: "Invaders 🛸" },
   { id: "heart", label: "Heart ❤️" },
   { id: "cat", label: "Cat 🐱" },
-  { id: "racer", label: "Racer 🏎️" },
+  // { id: "racer", label: "Racer 🏎️" },  // TODO: rework
 ];
 
 const ANIM_INTERVALS: Record<AnimType, number> = {
@@ -975,7 +1060,7 @@ const ANIM_INTERVALS: Record<AnimType, number> = {
   invaders: 120,
   heart: 200,
   cat: 160,
-  racer: 120,
+  // racer: 120,
 };
 
 interface AnimationState {
@@ -995,7 +1080,6 @@ function createAnimation(type: AnimType): { tick: () => string } {
     case "invaders": return new InvadersAnimation();
     case "heart": return new HeartAnimation();
     case "cat": return new CatAnimation();
-    case "racer": return new RacerAnimation();
   }
 }
 
