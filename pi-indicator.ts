@@ -1368,13 +1368,12 @@ class StickManAnimation {
   private readonly hipX = 16.0;
   private readonly hipY = 6.0;
 
-  private static readonly TORSO_LEN = 3.0;
-  private static readonly NECK_LEN = 1.5;
-  private static readonly HEAD_R = 1.5;
-  private static readonly UPPER_ARM = 2.0;
-  private static readonly LOWER_ARM = 1.8;
-  private static readonly UPPER_LEG = 2.0;
-  private static readonly LOWER_LEG = 2.0;
+  private static readonly TORSO_LEN = 2.0;
+  private static readonly HEAD_H = 1.5;
+  private static readonly UPPER_ARM = 1.5;
+  private static readonly LOWER_ARM = 1.3;
+  private static readonly UPPER_LEG = 1.5;
+  private static readonly LOWER_LEG = 1.5;
 
   constructor() {
     this.pose = { ...STICK_ACTIONS.idle[0] };
@@ -1433,8 +1432,6 @@ class StickManAnimation {
     const torsoAngle = -Math.PI / 2 + leanRad;
     const nx = hx + StickManAnimation.TORSO_LEN * Math.cos(torsoAngle);
     const ny = hy + StickManAnimation.TORSO_LEN * Math.sin(torsoAngle);
-    const headCx = nx + StickManAnimation.NECK_LEN * Math.cos(torsoAngle);
-    const headCy = ny + StickManAnimation.NECK_LEN * Math.sin(torsoAngle);
     const shoulderBase = torsoAngle + Math.PI / 2;
 
     const laAngle = shoulderBase + (p.l_shoulder * this.facing) * Math.PI / 180;
@@ -1468,7 +1465,7 @@ class StickManAnimation {
     const rfY = rkY + StickManAnimation.LOWER_LEG * Math.sin(rl2Angle);
 
     return {
-      hip: [hx, hy], neck: [nx, ny], head: [headCx, headCy],
+      hip: [hx, hy], neck: [nx, ny],
       l_elbow: [leX, leY], l_hand: [lhX, lhY],
       r_elbow: [reX, reY], r_hand: [rhX, rhY],
       l_knee: [lkX, lkY], l_foot: [lfX, lfY],
@@ -1483,35 +1480,41 @@ class StickManAnimation {
 
     const j = this.fk(this.pose);
     const colorMap = new Map<string, string>();
-    const bodyColor = "\x1b[38;5;46m";
-    const jointColor = "\x1b[38;5;82m";
-    const headColor = "\x1b[38;5;226m";
-    const groundColor = "\x1b[38;5;240m";
+    const bodyColor = "\x1b[38;5;46m"; // bright green — one color for whole figure
 
-    // Skeleton segments
-    stickDrawLine(j.hip[0], j.hip[1], j.neck[0], j.neck[1], colorMap, bodyColor);
-    stickDrawLine(j.neck[0], j.neck[1], j.l_elbow[0], j.l_elbow[1], colorMap, bodyColor);
+    const nx = j.neck[0], ny = j.neck[1];
+    const f = this.facing;
+
+    // Skeleton segments (single-pixel lines only, no dots)
+    stickDrawLine(j.hip[0], j.hip[1], nx, ny, colorMap, bodyColor);
+    stickDrawLine(nx, ny, j.l_elbow[0], j.l_elbow[1], colorMap, bodyColor);
     stickDrawLine(j.l_elbow[0], j.l_elbow[1], j.l_hand[0], j.l_hand[1], colorMap, bodyColor);
-    stickDrawLine(j.neck[0], j.neck[1], j.r_elbow[0], j.r_elbow[1], colorMap, bodyColor);
+    stickDrawLine(nx, ny, j.r_elbow[0], j.r_elbow[1], colorMap, bodyColor);
     stickDrawLine(j.r_elbow[0], j.r_elbow[1], j.r_hand[0], j.r_hand[1], colorMap, bodyColor);
     stickDrawLine(j.hip[0], j.hip[1], j.l_knee[0], j.l_knee[1], colorMap, bodyColor);
     stickDrawLine(j.l_knee[0], j.l_knee[1], j.l_foot[0], j.l_foot[1], colorMap, bodyColor);
     stickDrawLine(j.hip[0], j.hip[1], j.r_knee[0], j.r_knee[1], colorMap, bodyColor);
     stickDrawLine(j.r_knee[0], j.r_knee[1], j.r_foot[0], j.r_foot[1], colorMap, bodyColor);
-    stickDrawLine(j.neck[0], j.neck[1], j.head[0], j.head[1], colorMap, bodyColor);
 
-    // Head
-    stickDrawCircle(j.head[0], j.head[1], StickManAnimation.HEAD_R, colorMap, headColor);
+    // Neck stub (short line from neck upward)
+    const leanRad = (this.pose.torso_lean * f) * Math.PI / 180;
+    const torsoAngle = -Math.PI / 2 + leanRad;
+    const neckTopX = nx + 0.5 * Math.cos(torsoAngle);
+    const neckTopY = ny + 0.5 * Math.sin(torsoAngle);
+    stickDrawLine(nx, ny, neckTopX, neckTopY, colorMap, bodyColor);
 
-    // Joints
-    for (const name of ["l_elbow", "l_hand", "r_elbow", "r_hand", "l_knee", "r_knee"]) {
-      stickDrawDot(j[name][0], j[name][1], colorMap, jointColor);
+    // Head: 2x2 pixel square above neck
+    for (let dy = -1; dy < 1; dy++) {
+      for (let dx = -1; dx < 1; dx++) {
+        const px = Math.round(neckTopX + dx * f);
+        const py = Math.round(neckTopY - StickManAnimation.HEAD_H + dy);
+        if (px >= 0 && px < STICK_W && py >= 0 && py < STICK_H) {
+          colorMap.set(`${py},${px}`, bodyColor);
+        }
+      }
     }
 
-    // Ground
-    for (let gx = 0; gx < STICK_W; gx += 2) {
-      if (10 >= 0 && 10 < STICK_H) colorMap.set(`10,${gx}`, groundColor);
-    }
+    // No ground line, no joint dots — just the skeleton lines
 
     this.advance();
     return toBraille3LineColored(colorMap);

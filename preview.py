@@ -1231,17 +1231,18 @@ def to_braille_3line_colored(color_map):
 class StickManAnimation:
     """Procedural stick figure that performs random actions like a pet."""
 
-    # Skeleton segment lengths (in pixels)
-    TORSO_LEN = 3.0
-    NECK_LEN = 1.5
-    HEAD_R = 1.5
-    UPPER_ARM = 2.0
-    LOWER_ARM = 1.8
-    UPPER_LEG = 2.0
-    LOWER_LEG = 2.0
+    # Skeleton segment lengths (in pixels) — smaller stickman
+    TORSO_LEN = 2.0
+    UPPER_ARM = 1.5
+    LOWER_ARM = 1.3
+    UPPER_LEG = 1.5
+    LOWER_LEG = 1.5
+
+    # Head: 2x2 pixel square, HEAD_H = height above neck center
+    HEAD_H = 1.5
 
     # Ground level
-    GROUND_Y = 10
+    GROUND_Y = 9
 
     # Action keyframes: each action is a list of poses
     # Each pose is a dict of joint angles (degrees) + torso_lean + offset_y
@@ -1428,10 +1429,6 @@ class StickManAnimation:
         nx = hx + self.TORSO_LEN * math.cos(torso_angle)
         ny = hy + self.TORSO_LEN * math.sin(torso_angle)
 
-        # Head
-        head_cx = nx + self.NECK_LEN * math.cos(torso_angle)
-        head_cy = ny + self.NECK_LEN * math.sin(torso_angle)
-
         # Arms: shoulders at neck base, angle relative to torso
         # Arm hangs down from shoulder; positive angle swings forward
         shoulder_angle_base = torso_angle + math.pi / 2  # perpendicular to torso = down
@@ -1474,7 +1471,6 @@ class StickManAnimation:
         return {
             "hip": (hx, hy),
             "neck": (nx, ny),
-            "head": (head_cx, head_cy),
             "l_elbow": (l_elbow_x, l_elbow_y),
             "l_hand": (l_hand_x, l_hand_y),
             "r_elbow": (r_elbow_x, r_elbow_y),
@@ -1494,19 +1490,20 @@ class StickManAnimation:
 
         joints = self._fk(self.pose)
         color_map = {}
-        body_color = "\x1b[38;5;46m"   # bright green
-        joint_color = "\x1b[38;5;82m"   # lighter green
-        head_color = "\x1b[38;5;226m"   # yellow
+        body_color = "\x1b[38;5;46m"   # bright green — one color for whole figure
 
-        # Draw skeleton segments
+        # Draw skeleton segments (single-pixel lines only, no dots)
         j = joints
+        nx, ny = j["neck"]
+        f = self.facing
+
         # Torso
-        stick_draw_line(j["hip"][0], j["hip"][1], j["neck"][0], j["neck"][1], color_map, body_color)
+        stick_draw_line(j["hip"][0], j["hip"][1], nx, ny, color_map, body_color)
         # Left arm
-        stick_draw_line(j["neck"][0], j["neck"][1], j["l_elbow"][0], j["l_elbow"][1], color_map, body_color)
+        stick_draw_line(nx, ny, j["l_elbow"][0], j["l_elbow"][1], color_map, body_color)
         stick_draw_line(j["l_elbow"][0], j["l_elbow"][1], j["l_hand"][0], j["l_hand"][1], color_map, body_color)
         # Right arm
-        stick_draw_line(j["neck"][0], j["neck"][1], j["r_elbow"][0], j["r_elbow"][1], color_map, body_color)
+        stick_draw_line(nx, ny, j["r_elbow"][0], j["r_elbow"][1], color_map, body_color)
         stick_draw_line(j["r_elbow"][0], j["r_elbow"][1], j["r_hand"][0], j["r_hand"][1], color_map, body_color)
         # Left leg
         stick_draw_line(j["hip"][0], j["hip"][1], j["l_knee"][0], j["l_knee"][1], color_map, body_color)
@@ -1515,22 +1512,22 @@ class StickManAnimation:
         stick_draw_line(j["hip"][0], j["hip"][1], j["r_knee"][0], j["r_knee"][1], color_map, body_color)
         stick_draw_line(j["r_knee"][0], j["r_knee"][1], j["r_foot"][0], j["r_foot"][1], color_map, body_color)
 
-        # Neck to head
-        stick_draw_line(j["neck"][0], j["neck"][1], j["head"][0], j["head"][1], color_map, body_color)
+        # Neck stub (short line from neck upward)
+        lean_rad = math.radians(self.pose["torso_lean"] * f)
+        torso_angle = -math.pi / 2 + lean_rad
+        neck_top_x = nx + 0.5 * math.cos(torso_angle)
+        neck_top_y = ny + 0.5 * math.sin(torso_angle)
+        stick_draw_line(nx, ny, neck_top_x, neck_top_y, color_map, body_color)
 
-        # Draw head (filled circle)
-        stick_draw_circle(j["head"][0], j["head"][1], self.HEAD_R, color_map, head_color)
+        # Head: 2x2 pixel square above neck
+        for dy in range(-1, 1):
+            for dx in range(-1, 1):
+                px = round(neck_top_x + dx * f)
+                py = round(neck_top_y - self.HEAD_H + dy)
+                if 0 <= px < STICK_W and 0 <= py < STICK_H:
+                    color_map[(py, px)] = body_color
 
-        # Draw joints (dots)
-        for jname in ["l_elbow", "l_hand", "r_elbow", "r_hand", "l_knee", "r_knee"]:
-            stick_draw_dot(j[jname][0], j[jname][1], color_map, joint_color)
-
-        # Draw ground line
-        ground_color = "\x1b[38;5;240m"
-        for gx in range(0, STICK_W, 2):
-            gy = self.GROUND_Y
-            if 0 <= gx < STICK_W and 0 <= gy < STICK_H:
-                color_map[(gy, gx)] = ground_color
+        # No ground line, no joint dots — just the skeleton lines
 
         # Draw action label at top
         self._advance()
