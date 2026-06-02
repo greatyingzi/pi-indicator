@@ -1136,69 +1136,26 @@ class GifAnimation:
 STICK_W, STICK_H = 32, 12  # 16 braille chars wide × 3 lines = 32×12 dots
 
 def stick_draw_line(x0, y0, x1, y1, color_map, color):
-    """Bresenham line from (x0,y0) to (x1,y1) on 32×12 grid."""
-    x0, y0, x1, y1 = int(round(x0)), int(round(y0)), int(round(x1)), int(round(y1))
-    dx = abs(x1 - x0)
-    dy = abs(y1 - y0)
-    sx = 1 if x0 < x1 else -1
-    sy = 1 if y0 < y1 else -1
-    err = dx - dy
-    safety = 0
-    while safety < 500:
-        if 0 <= x0 < STICK_W and 0 <= y0 < STICK_H:
-            color_map[(y0, x0)] = color
-        if x0 == x1 and y0 == y1:
-            break
-        e2 = 2 * err
-        if e2 > -dy:
-            err -= dy
-            x0 += sx
-        if e2 < dx:
-            err += dx
-            y0 += sy
-        safety += 1
+    """Parametric line from (x0,y0) to (x1,y1) on 32×12 grid."""
+    pts = max(abs(round(x1) - round(x0)), abs(round(y1) - round(y0)), 1)
+    for i in range(pts + 1):
+        t = i / pts
+        x = round(x0 + (x1 - x0) * t)
+        y = round(y0 + (y1 - y0) * t)
+        if 0 <= x < STICK_W and 0 <= y < STICK_H:
+            color_map[(y, x)] = color
 
 
-def stick_draw_circle(cx, cy, r, color_map, color):
-    """Midpoint circle on 32×12 grid."""
-    cx, cy = int(round(cx)), int(round(cy))
-    r = max(0, int(round(r)))
-    if r == 0:
-        if 0 <= cx < STICK_W and 0 <= cy < STICK_H:
-            color_map[(cy, cx)] = color
-        return
-    x, y = r, 0
-    d = 1 - r
-    while x >= y:
-        for dx, dy in [(x,y),(y,x),(-x,y),(-y,x),(x,-dy) if y != 0 else (x,0),
-                        (y,-x) if x != 0 else (0,0),(-x,-y) if y != 0 else (-x,0),(-y,-x) if x != 0 else (0,0)]:
-            px, py = cx + dx, cy + dy
-            if 0 <= px < STICK_W and 0 <= py < STICK_H:
-                color_map[(py, px)] = color
-        # Fill the circle
-        for ix in range(cx - x, cx + x + 1):
-            for iy in [cy + y, cy - y]:
-                if 0 <= ix < STICK_W and 0 <= iy < STICK_H:
-                    color_map[(iy, ix)] = color
-        for iy in range(cy - x, cy + x + 1):
-            for ix in [cx + y, cx - y]:
-                if 0 <= ix < STICK_W and 0 <= iy < STICK_H:
-                    color_map[(iy, ix)] = color
-        y += 1
-        if d <= 0:
-            d += 2 * y + 1
-        else:
-            x -= 1
-            d += 2 * (y - x) + 1
-
-
-def stick_draw_dot(cx, cy, color_map, color):
-    """Draw a 2-3px joint dot."""
-    for dx in range(-1, 2):
-        for dy in range(-1, 2):
-            px, py = int(round(cx)) + dx, int(round(cy)) + dy
-            if 0 <= px < STICK_W and 0 <= py < STICK_H:
-                color_map[(py, px)] = color
+def stick_draw_filled_circle(cx, cy, r, color_map, color):
+    """Filled circle on 32×12 grid."""
+    y_min = max(0, int(math.floor(cy - r - 0.5)))
+    y_max = min(STICK_H - 1, int(math.ceil(cy + r + 0.5)))
+    x_min = max(0, int(math.floor(cx - r - 0.5)))
+    x_max = min(STICK_W - 1, int(math.ceil(cx + r + 0.5)))
+    for y in range(y_min, y_max + 1):
+        for x in range(x_min, x_max + 1):
+            if (x - cx) ** 2 + (y - cy) ** 2 <= r * r + 0.5:
+                color_map[(y, x)] = color
 
 
 def to_braille_3line_colored(color_map):
@@ -1228,310 +1185,234 @@ def to_braille_3line_colored(color_map):
     return "\n".join(lines)
 
 
+# Pose keyframes verified to look natural
+# Short field names: ls,le,rs,re = arm angles; lh,lk,rh,rk = leg angles; tl=torso_lean; oy=offset_y; f=facing
+STICK_POSES = {
+    'stand':    dict(ls=8,   le=-5,  rs=-8,  re=5,   lh=3,   lk=0,   rh=-3,  rk=0,   tl=0,  oy=0,    f=1),
+    'walk1':    dict(ls=-25, le=-10, rs=25,  re=10,  lh=25,  lk=35,  rh=-25, rk=5,   tl=2,  oy=-0.5, f=1),
+    'walk2':    dict(ls=-5,  le=-5,  rs=5,   re=5,   lh=8,   lk=10,  rh=-8,  rk=15,  tl=1,  oy=0,    f=1),
+    'walk3':    dict(ls=25,  le=10,  rs=-25, re=-10, lh=-25, lk=5,   rh=25,  rk=35,  tl=2,  oy=-0.5, f=1),
+    'walk4':    dict(ls=5,   le=5,   rs=-5,  re=-5,  lh=-8,  lk=15,  rh=8,   rk=10,  tl=1,  oy=0,    f=1),
+    'run1':     dict(ls=-50, le=-60, rs=50,  re=60,  lh=45,  lk=55,  rh=-45, rk=10,  tl=6,  oy=-1.5, f=1),
+    'run2':     dict(ls=-10, le=-30, rs=10,  re=30,  lh=15,  lk=25,  rh=-15, rk=25,  tl=4,  oy=0,    f=1),
+    'run3':     dict(ls=50,  le=60,  rs=-50, re=-60, lh=-45, lk=10,  rh=45,  rk=55,  tl=6,  oy=-1.5, f=1),
+    'run4':     dict(ls=10,  le=30,  rs=-10, re=-30, lh=-15, lk=25,  rh=15,  rk=25,  tl=4,  oy=0,    f=1),
+    'j_crouch': dict(ls=10,  le=-5,  rs=-10, re=5,   lh=10,  lk=40,  rh=-10, rk=40,  tl=0,  oy=1,    f=1),
+    'j_launch': dict(ls=-60, le=-15, rs=60,  re=15,  lh=5,   lk=5,   rh=-5,  rk=5,   tl=-3, oy=-3,   f=1),
+    'j_air':    dict(ls=-80, le=-10, rs=80,  re=10,  lh=5,   lk=0,   rh=-5,  rk=0,   tl=-2, oy=-4,   f=1),
+    'j_fall':   dict(ls=-40, le=-10, rs=40,  re=10,  lh=5,   lk=5,   rh=-5,  rk=5,   tl=0,  oy=-2,   f=1),
+    'j_land':   dict(ls=10,  le=-5,  rs=-10, re=5,   lh=10,  lk=35,  rh=-10, rk=35,  tl=2,  oy=0.5,  f=1),
+    'sit_down': dict(ls=15,  le=-25, rs=-15, re=25,  lh=-55, lk=75,  rh=55,  rk=-75, tl=3,  oy=2,    f=1),
+    'sit_idle': dict(ls=20,  le=-20, rs=-20, re=20,  lh=-60, lk=80,  rh=60,  rk=-80, tl=3,  oy=2.5,  f=1),
+    'wave1':    dict(ls=8,   le=-5,  rs=-110,re=-90, lh=3,   lk=0,   rh=-3,  rk=0,   tl=0,  oy=0,    f=1),
+    'wave2':    dict(ls=8,   le=-5,  rs=-110,re=-40, lh=3,   lk=0,   rh=-3,  rk=0,   tl=0,  oy=0,    f=1),
+    'k_prep':   dict(ls=15,  le=-10, rs=-15, re=10,  lh=-5,  lk=0,   rh=5,   rk=5,   tl=0,  oy=0,    f=1),
+    'k_go':     dict(ls=30,  le=-15, rs=-30, re=15,  lh=-10, lk=0,   rh=80,  rk=-10, tl=-8, oy=-1,   f=1),
+    'k_ret':    dict(ls=15,  le=-10, rs=-15, re=10,  lh=-5,  lk=0,   rh=30,  rk=20,  tl=-3, oy=0,    f=1),
+    'd1':       dict(ls=-70, le=-80, rs=20,  re=10,  lh=15,  lk=10,  rh=-25, rk=30,  tl=5,  oy=-1,   f=1),
+    'd2':       dict(ls=20,  le=10,  rs=-70, re=-80, lh=-25, lk=30,  rh=15,  rk=10,  tl=-5, oy=-1,   f=1),
+}
+
+# Sequences: each action is an ordered list of pose names
+STICK_SEQUENCES = {
+    'idle':        ['stand'],
+    'look_around': ['stand'],
+    'walk':        ['walk1', 'walk2', 'walk3', 'walk4'],
+    'run':         ['run1', 'run2', 'run3', 'run4'],
+    'jump':        ['j_crouch', 'j_launch', 'j_air', 'j_air', 'j_fall', 'j_land', 'stand'],
+    'sit':         ['sit_down', 'sit_idle', 'sit_idle', 'sit_idle', 'sit_down'],
+    'wave':        ['wave1', 'wave2', 'wave1', 'wave2', 'stand'],
+    'kick':        ['k_prep', 'k_go', 'k_ret', 'stand'],
+    'dance':       ['d1', 'd2', 'd1', 'd2'],
+}
+
+STICK_SPEED_MAP = {
+    'idle': 8, 'look_around': 10, 'walk': 4, 'run': 3,
+    'jump': 3, 'sit': 5, 'wave': 4, 'kick': 3, 'dance': 3,
+}
+
+STICK_MOVE_MAP = {
+    'idle': 0, 'look_around': 0, 'walk': 0.5, 'run': 1.0,
+    'jump': 0, 'sit': 0, 'wave': 0, 'kick': 0, 'dance': 0,
+}
+
+ENERGETIC = {'run', 'jump', 'kick'}
+CALM = {'idle', 'look_around', 'sit'}
+
+
 class StickManAnimation:
-    """Procedural stick figure that performs random actions like a pet."""
+    """Natural stick figure with smart pet-like behavior."""
 
-    # Skeleton segment lengths (in pixels) — smaller stickman
-    TORSO_LEN = 2.0
-    UPPER_ARM = 1.5
-    LOWER_ARM = 1.3
-    UPPER_LEG = 1.5
+    HEAD_R = 1.2
+    TORSO = 2.5
+    UPPER_ARM = 1.8
+    LOWER_ARM = 1.5
+    UPPER_LEG = 1.8
     LOWER_LEG = 1.5
-
-    # Head: 2x2 pixel square, HEAD_H = height above neck center
-    HEAD_H = 1.5
-
-    # Ground level
-    GROUND_Y = 9
-
-    # Action keyframes: each action is a list of poses
-    # Each pose is a dict of joint angles (degrees) + torso_lean + offset_y
-    # Angles: 0 = down for arms (relative to torso direction), 0 = straight for legs
-    # Positive = forward (in facing direction)
-    ACTIONS = {
-        "idle": [
-            {"l_shoulder": 15, "l_elbow": -10, "r_shoulder": -15, "r_elbow": 10,
-             "l_hip": -5, "l_knee": 0, "r_hip": 5, "r_knee": 0,
-             "torso_lean": 0, "offset_y": 0},
-            {"l_shoulder": -10, "l_elbow": 10, "r_shoulder": 10, "r_elbow": -10,
-             "l_hip": 5, "l_knee": 0, "r_hip": -5, "r_knee": 0,
-             "torso_lean": 0, "offset_y": 0},
-        ],
-        "walk": [
-            {"l_shoulder": -30, "l_elbow": -20, "r_shoulder": 30, "r_elbow": 15,
-             "l_hip": 25, "l_knee": -10, "r_hip": -25, "r_knee": 5,
-             "torso_lean": 3, "offset_y": 0},
-            {"l_shoulder": 0, "l_elbow": -5, "r_shoulder": 0, "r_elbow": 5,
-             "l_hip": 0, "l_knee": 0, "r_hip": 0, "r_knee": -15,
-             "torso_lean": 2, "offset_y": -0.5},
-            {"l_shoulder": 30, "l_elbow": 15, "r_shoulder": -30, "r_elbow": -20,
-             "l_hip": -25, "l_knee": 5, "r_hip": 25, "r_knee": -10,
-             "torso_lean": 3, "offset_y": 0},
-            {"l_shoulder": 0, "l_elbow": 5, "r_shoulder": 0, "r_elbow": -5,
-             "l_hip": 0, "l_knee": -15, "r_hip": 0, "r_knee": 0,
-             "torso_lean": 2, "offset_y": -0.5},
-        ],
-        "run": [
-            {"l_shoulder": -50, "l_elbow": -40, "r_shoulder": 50, "r_elbow": 30,
-             "l_hip": 40, "l_knee": -20, "r_hip": -40, "r_knee": 15,
-             "torso_lean": 8, "offset_y": -0.8},
-            {"l_shoulder": 50, "l_elbow": 30, "r_shoulder": -50, "r_elbow": -40,
-             "l_hip": -40, "l_knee": 15, "r_hip": 40, "r_knee": -20,
-             "torso_lean": 8, "offset_y": -0.8},
-        ],
-        "jump": [
-            {"l_shoulder": 15, "l_elbow": -10, "r_shoulder": -15, "r_elbow": 10,
-             "l_hip": 15, "l_knee": -35, "r_hip": -15, "r_knee": -35,
-             "torso_lean": 0, "offset_y": 1.5},  # crouch
-            {"l_shoulder": -60, "l_elbow": -30, "r_shoulder": 60, "r_elbow": 30,
-             "l_hip": -10, "l_knee": 5, "r_hip": 10, "r_knee": 5,
-             "torso_lean": -5, "offset_y": -3.5},  # launch
-            {"l_shoulder": -80, "l_elbow": -20, "r_shoulder": 80, "r_elbow": 20,
-             "l_hip": -5, "l_knee": 0, "r_hip": 5, "r_knee": 0,
-             "torso_lean": -3, "offset_y": -3.0},  # air
-            {"l_shoulder": -40, "l_elbow": -10, "r_shoulder": 40, "r_elbow": 10,
-             "l_hip": 0, "l_knee": 0, "r_hip": 0, "r_knee": 0,
-             "torso_lean": -2, "offset_y": -1.5},  # descend
-            {"l_shoulder": 10, "l_elbow": -5, "r_shoulder": -10, "r_elbow": 5,
-             "l_hip": 10, "l_knee": -25, "r_hip": -10, "r_knee": -25,
-             "torso_lean": 0, "offset_y": 1.0},  # land
-            {"l_shoulder": 10, "l_elbow": -5, "r_shoulder": -10, "r_elbow": 5,
-             "l_hip": 5, "l_knee": -10, "r_hip": -5, "r_knee": -10,
-             "torso_lean": 0, "offset_y": 0.5},  # recover
-        ],
-        "sit": [
-            {"l_shoulder": 20, "l_elbow": -30, "r_shoulder": -20, "r_elbow": 30,
-             "l_hip": -60, "l_knee": -70, "r_hip": 60, "r_knee": -70,
-             "torso_lean": 0, "offset_y": 2.5},
-            {"l_shoulder": 25, "l_elbow": -25, "r_shoulder": -25, "r_elbow": 25,
-             "l_hip": -65, "l_knee": -75, "r_hip": 65, "r_knee": -75,
-             "torso_lean": 0, "offset_y": 2.8},
-        ],
-        "wave": [
-            {"l_shoulder": 10, "l_elbow": -5, "r_shoulder": -120, "r_elbow": -100,
-             "l_hip": -5, "l_knee": 0, "r_hip": 5, "r_knee": 0,
-             "torso_lean": 0, "offset_y": 0},
-            {"l_shoulder": 10, "l_elbow": -5, "r_shoulder": -120, "r_elbow": -50,
-             "l_hip": -5, "l_knee": 0, "r_hip": 5, "r_knee": 0,
-             "torso_lean": 0, "offset_y": 0},
-            {"l_shoulder": 10, "l_elbow": -5, "r_shoulder": -120, "r_elbow": -100,
-             "l_hip": -5, "l_knee": 0, "r_hip": 5, "r_knee": 0,
-             "torso_lean": 0, "offset_y": 0},
-            {"l_shoulder": 10, "l_elbow": -5, "r_shoulder": -120, "r_elbow": -50,
-             "l_hip": -5, "l_knee": 0, "r_hip": 5, "r_knee": 0,
-             "torso_lean": 0, "offset_y": 0},
-        ],
-        "kick": [
-            {"l_shoulder": 15, "l_elbow": -10, "r_shoulder": -15, "r_elbow": 10,
-             "l_hip": -5, "l_knee": 0, "r_hip": 5, "r_knee": 0,
-             "torso_lean": 0, "offset_y": 0},
-            {"l_shoulder": 30, "l_elbow": -15, "r_shoulder": -30, "r_elbow": 15,
-             "l_hip": -10, "l_knee": 5, "r_hip": 50, "r_knee": -30,
-             "torso_lean": -5, "offset_y": 0},
-            {"l_shoulder": 40, "l_elbow": -20, "r_shoulder": -40, "r_elbow": 20,
-             "l_hip": -15, "l_knee": 5, "r_hip": 80, "r_knee": -10,
-             "torso_lean": -8, "offset_y": -0.5},
-            {"l_shoulder": 30, "l_elbow": -15, "r_shoulder": -30, "r_elbow": 15,
-             "l_hip": -10, "l_knee": 5, "r_hip": 50, "r_knee": -30,
-             "torso_lean": -5, "offset_y": 0},
-            {"l_shoulder": 15, "l_elbow": -10, "r_shoulder": -15, "r_elbow": 10,
-             "l_hip": -5, "l_knee": 0, "r_hip": 5, "r_knee": 0,
-             "torso_lean": 0, "offset_y": 0},
-        ],
-        "dance": [
-            {"l_shoulder": -80, "l_elbow": -90, "r_shoulder": 30, "r_elbow": 15,
-             "l_hip": 20, "l_knee": -5, "r_hip": -20, "r_knee": 5,
-             "torso_lean": 5, "offset_y": -0.5},
-            {"l_shoulder": 30, "l_elbow": 15, "r_shoulder": -80, "r_elbow": -90,
-             "l_hip": -20, "l_knee": 5, "r_hip": 20, "r_knee": -5,
-             "torso_lean": -5, "offset_y": -0.5},
-            {"l_shoulder": -90, "l_elbow": -70, "r_shoulder": -90, "r_elbow": -70,
-             "l_hip": 15, "l_knee": -15, "r_hip": -15, "r_knee": -15,
-             "torso_lean": 0, "offset_y": -1.0},
-            {"l_shoulder": 40, "l_elbow": 20, "r_shoulder": 40, "r_elbow": 20,
-             "l_hip": -25, "l_knee": 10, "r_hip": 25, "r_knee": 10,
-             "torso_lean": 0, "offset_y": 0},
-        ],
-    }
-
-    ACTION_NAMES = list(ACTIONS.keys())
+    GROUND = 10
 
     def __init__(self):
-        self.pose = dict(self.ACTIONS["idle"][0])  # current interpolated pose
-        self.facing = 1  # 1=right, -1=left
-        self.current_action = "idle"
-        self.keyframe_idx = 0
+        self.pose = dict(STICK_POSES['stand'])
+        self.facing = 1
+        self.state = 'idle'
+        self.seq_idx = 0
         self.frames_in_step = 0
-        self.frames_per_step = 4  # interpolation steps between keyframes
+        self.frames_per_step = 8
         self.from_pose = dict(self.pose)
-        self.to_pose = dict(self.ACTIONS["idle"][0])
-        self.idle_count = 0
-        self.hip_x = 16.0  # hip center x
-        self.hip_y = 6.0   # hip center y
+        self.to_pose = dict(self.pose)
+        self.cx = 16.0
+        self.energy = 0
+        self.state_count = 0
+        self.global_tick = 0
 
-    def _pick_action(self):
-        old = self.current_action
-        # Weight: idle and walk more common
-        weights = {"idle": 3, "walk": 4, "run": 2, "jump": 2, "sit": 2,
-                   "wave": 2, "kick": 2, "dance": 2}
-        choices = []
-        for a, w in weights.items():
-            choices.extend([a] * w)
-        action = random.choice(choices)
-        # Maybe change direction when starting walk/run
-        if action in ("walk", "run", "kick") and random.random() < 0.4:
-            self.facing *= -1
-        self.current_action = action
-        self.keyframe_idx = 0
-        self.frames_in_step = 0
-        keyframes = self.ACTIONS[action]
-        # Adjust speed per action
-        speed_map = {"idle": 6, "walk": 4, "run": 3, "jump": 3,
-                     "sit": 5, "wave": 3, "kick": 3, "dance": 3}
-        self.frames_per_step = speed_map.get(action, 4)
-        self.from_pose = dict(self.pose)
-        self.to_pose = dict(keyframes[0])
+    def _fk(self, p):
+        """Forward kinematics matching the verified prototype."""
+        lean = math.radians(p['tl'] * p['f'])
+        f = p['f']
+        oy = p['oy']
+        hx = self.cx
+        hy = self.GROUND - self.UPPER_LEG - self.LOWER_LEG + oy
+        nx = hx + math.sin(lean) * self.TORSO * f
+        ny = hy - self.TORSO * math.cos(lean)
+        hcx = nx
+        hcy = ny - self.HEAD_R - 0.5
+
+        joints = {
+            'hip': (hx, hy), 'neck': (nx, ny), 'headCenter': (hcx, hcy),
+        }
+
+        for side in ('l', 'r'):
+            sa = math.radians(p[f'{side}s'])
+            ea = math.radians(p[f'{side}e'])
+            au = math.pi / 2 - sa * f
+            ex = nx + math.cos(au) * self.UPPER_ARM
+            ey = ny + math.sin(au) * self.UPPER_ARM
+            wx = ex + math.cos(au + ea) * self.LOWER_ARM
+            wy = ey + math.sin(au + ea) * self.LOWER_ARM
+            joints[f'{side}_elbow'] = (ex, ey)
+            joints[f'{side}_hand'] = (wx, wy)
+
+        for side in ('l', 'r'):
+            ha = math.radians(p[f'{side}h'])
+            ka = math.radians(p[f'{side}k'])
+            au = math.pi / 2 - ha * f
+            kx = hx + math.cos(au) * self.UPPER_LEG
+            ky = hy + math.sin(au) * self.UPPER_LEG
+            al = au - ka
+            fx = kx + math.cos(al) * self.LOWER_LEG
+            fy = ky + math.sin(al) * self.LOWER_LEG
+            joints[f'{side}_knee'] = (kx, ky)
+            joints[f'{side}_foot'] = (fx, fy)
+
+        return joints
 
     def _lerp_pose(self, t):
-        """Linearly interpolate from from_pose to to_pose by t (0..1)."""
-        for key in self.from_pose:
+        for key in ('ls', 'le', 'rs', 're', 'lh', 'lk', 'rh', 'rk', 'tl', 'oy', 'f'):
             self.pose[key] = self.from_pose[key] + (self.to_pose[key] - self.from_pose[key]) * t
 
+    def _pick_next_state(self):
+        """Smart pet-like state machine with energy tracking."""
+        r = random.random()
+        is_energetic = self.state in ENERGETIC
+        is_calm = self.state in CALM
+
+        if is_energetic:
+            self.energy = min(2, self.energy + 1)
+        elif is_calm:
+            self.energy = max(-2, self.energy - 1)
+
+        if self.energy > 0:
+            choices = ['idle', 'idle', 'look_around', 'walk', 'sit', 'wave']
+        elif self.energy < 0:
+            choices = ['run', 'jump', 'kick', 'walk', 'walk', 'dance']
+        else:
+            choices = ['idle', 'walk', 'walk', 'look_around', 'wave', 'run', 'jump', 'sit']
+
+        if r < 0.03:
+            choices = ['wave']
+        elif r < 0.06:
+            choices = ['dance']
+
+        next_state = random.choice(choices)
+
+        if next_state in ('walk', 'run') and random.random() < 0.4:
+            self.facing *= -1
+        if next_state == 'kick':
+            if random.random() < 0.5:
+                self.facing *= -1
+
+        self.state = next_state
+        self.seq_idx = 0
+        self.frames_in_step = 0
+        self.frames_per_step = STICK_SPEED_MAP.get(next_state, 6)
+        self.from_pose = dict(self.pose)
+        self.from_pose['f'] = self.facing
+        seq = STICK_SEQUENCES[next_state]
+        target = STICK_POSES[seq[0]]
+        self.to_pose = dict(target)
+        self.to_pose['f'] = self.facing
+        self.state_count += 1
+
     def _advance(self):
-        """Advance animation by one sub-step."""
         self.frames_in_step += 1
         if self.frames_in_step >= self.frames_per_step:
-            # Arrived at to_pose
             self.pose = dict(self.to_pose)
             self.from_pose = dict(self.pose)
             self.frames_in_step = 0
-
-            keyframes = self.ACTIONS[self.current_action]
-            self.keyframe_idx += 1
-
-            if self.keyframe_idx >= len(keyframes):
-                # Action finished, pick new one
-                self._pick_action()
+            seq = STICK_SEQUENCES[self.state]
+            self.seq_idx += 1
+            if self.seq_idx >= len(seq):
+                self._pick_next_state()
             else:
-                self.to_pose = dict(keyframes[self.keyframe_idx])
-
-    def _fk(self, pose):
-        """Forward kinematics: compute joint positions from pose angles."""
-        lean_rad = math.radians(pose["torso_lean"] * self.facing)
-        oy = pose["offset_y"]
-
-        # Hip (root)
-        hx, hy = self.hip_x, self.hip_y + oy
-
-        # Torso direction: mostly up, tilted by lean
-        # 0 lean = straight up (-90 degrees from horizontal)
-        torso_angle = -math.pi / 2 + lean_rad
-        nx = hx + self.TORSO_LEN * math.cos(torso_angle)
-        ny = hy + self.TORSO_LEN * math.sin(torso_angle)
-
-        # Arms: shoulders at neck base, angle relative to torso
-        # Arm hangs down from shoulder; positive angle swings forward
-        shoulder_angle_base = torso_angle + math.pi / 2  # perpendicular to torso = down
-
-        # Left arm
-        la_angle = shoulder_angle_base + math.radians(pose["l_shoulder"] * self.facing)
-        l_elbow_x = nx + self.UPPER_ARM * math.cos(la_angle)
-        l_elbow_y = ny + self.UPPER_ARM * math.sin(la_angle)
-        la2_angle = la_angle + math.radians(pose["l_elbow"] * self.facing)
-        l_hand_x = l_elbow_x + self.LOWER_ARM * math.cos(la2_angle)
-        l_hand_y = l_elbow_y + self.LOWER_ARM * math.sin(la2_angle)
-
-        # Right arm
-        ra_angle = shoulder_angle_base + math.radians(pose["r_shoulder"] * self.facing)
-        r_elbow_x = nx + self.UPPER_ARM * math.cos(ra_angle)
-        r_elbow_y = ny + self.UPPER_ARM * math.sin(ra_angle)
-        ra2_angle = ra_angle + math.radians(pose["r_elbow"] * self.facing)
-        r_hand_x = r_elbow_x + self.LOWER_ARM * math.cos(ra2_angle)
-        r_hand_y = r_elbow_y + self.LOWER_ARM * math.sin(ra2_angle)
-
-        # Legs: from hip, angle 0 = straight down (+90 degrees from horizontal)
-        leg_base = math.pi / 2  # straight down
-
-        # Left leg
-        ll_angle = leg_base + math.radians(pose["l_hip"] * self.facing)
-        l_knee_x = hx + self.UPPER_LEG * math.cos(ll_angle)
-        l_knee_y = hy + self.UPPER_LEG * math.sin(ll_angle)
-        ll2_angle = ll_angle + math.radians(pose["l_knee"] * self.facing)
-        l_foot_x = l_knee_x + self.LOWER_LEG * math.cos(ll2_angle)
-        l_foot_y = l_knee_y + self.LOWER_LEG * math.sin(ll2_angle)
-
-        # Right leg
-        rl_angle = leg_base + math.radians(pose["r_hip"] * self.facing)
-        r_knee_x = hx + self.UPPER_LEG * math.cos(rl_angle)
-        r_knee_y = hy + self.UPPER_LEG * math.sin(rl_angle)
-        rl2_angle = rl_angle + math.radians(pose["r_knee"] * self.facing)
-        r_foot_x = r_knee_x + self.LOWER_LEG * math.cos(rl2_angle)
-        r_foot_y = r_knee_y + self.LOWER_LEG * math.sin(rl2_angle)
-
-        return {
-            "hip": (hx, hy),
-            "neck": (nx, ny),
-            "l_elbow": (l_elbow_x, l_elbow_y),
-            "l_hand": (l_hand_x, l_hand_y),
-            "r_elbow": (r_elbow_x, r_elbow_y),
-            "r_hand": (r_hand_x, r_hand_y),
-            "l_knee": (l_knee_x, l_knee_y),
-            "l_foot": (l_foot_x, l_foot_y),
-            "r_knee": (r_knee_x, r_knee_y),
-            "r_foot": (r_foot_x, r_foot_y),
-        }
+                target = STICK_POSES[seq[self.seq_idx]]
+                self.to_pose = dict(target)
+                self.to_pose['f'] = self.facing
 
     def tick(self):
-        # Interpolate current step
+        self.global_tick += 1
         t = self.frames_in_step / self.frames_per_step if self.frames_per_step > 0 else 1.0
-        # Smooth step
-        t = t * t * (3 - 2 * t)
+        t = t * t * (3 - 2 * t)  # smoothstep
         self._lerp_pose(t)
 
-        joints = self._fk(self.pose)
-        color_map = {}
-        body_color = "\x1b[38;5;46m"   # bright green — one color for whole figure
+        # Movement
+        move_speed = STICK_MOVE_MAP.get(self.state, 0)
+        self.cx += move_speed * self.facing
+        if self.cx < 6:
+            self.cx = 6; self.facing = 1; self.pose['f'] = 1
+        if self.cx > 26:
+            self.cx = 26; self.facing = -1; self.pose['f'] = -1
 
-        # Draw skeleton segments (single-pixel lines only, no dots)
-        j = joints
-        nx, ny = j["neck"]
-        f = self.facing
+        # Idle look-around wobble
+        if self.state in ('idle', 'look_around'):
+            wobble = math.sin(self.global_tick * 0.15) * 2
+            self.pose['tl'] = self.pose['tl'] * 0.8 + wobble * 0.2
+
+        j = self._fk(self.pose)
+        color_map = {}
+        body_color = "\x1b[38;5;46m"  # bright green
+
+        # Head (filled circle)
+        hcx, hcy = j['headCenter']
+        stick_draw_filled_circle(hcx, hcy, self.HEAD_R, color_map, body_color)
+
+        # Neck
+        stick_draw_line(j['neck'][0], j['neck'][1], hcx, hcy, color_map, body_color)
 
         # Torso
-        stick_draw_line(j["hip"][0], j["hip"][1], nx, ny, color_map, body_color)
-        # Left arm
-        stick_draw_line(nx, ny, j["l_elbow"][0], j["l_elbow"][1], color_map, body_color)
-        stick_draw_line(j["l_elbow"][0], j["l_elbow"][1], j["l_hand"][0], j["l_hand"][1], color_map, body_color)
-        # Right arm
-        stick_draw_line(nx, ny, j["r_elbow"][0], j["r_elbow"][1], color_map, body_color)
-        stick_draw_line(j["r_elbow"][0], j["r_elbow"][1], j["r_hand"][0], j["r_hand"][1], color_map, body_color)
-        # Left leg
-        stick_draw_line(j["hip"][0], j["hip"][1], j["l_knee"][0], j["l_knee"][1], color_map, body_color)
-        stick_draw_line(j["l_knee"][0], j["l_knee"][1], j["l_foot"][0], j["l_foot"][1], color_map, body_color)
-        # Right leg
-        stick_draw_line(j["hip"][0], j["hip"][1], j["r_knee"][0], j["r_knee"][1], color_map, body_color)
-        stick_draw_line(j["r_knee"][0], j["r_knee"][1], j["r_foot"][0], j["r_foot"][1], color_map, body_color)
+        stick_draw_line(j['hip'][0], j['hip'][1], j['neck'][0], j['neck'][1], color_map, body_color)
 
-        # Neck stub (short line from neck upward)
-        lean_rad = math.radians(self.pose["torso_lean"] * f)
-        torso_angle = -math.pi / 2 + lean_rad
-        neck_top_x = nx + 0.5 * math.cos(torso_angle)
-        neck_top_y = ny + 0.5 * math.sin(torso_angle)
-        stick_draw_line(nx, ny, neck_top_x, neck_top_y, color_map, body_color)
+        # Arms and legs
+        for side in ('l', 'r'):
+            stick_draw_line(j['neck'][0], j['neck'][1],
+                          j[f'{side}_elbow'][0], j[f'{side}_elbow'][1], color_map, body_color)
+            stick_draw_line(j[f'{side}_elbow'][0], j[f'{side}_elbow'][1],
+                          j[f'{side}_hand'][0], j[f'{side}_hand'][1], color_map, body_color)
+            stick_draw_line(j['hip'][0], j['hip'][1],
+                          j[f'{side}_knee'][0], j[f'{side}_knee'][1], color_map, body_color)
+            stick_draw_line(j[f'{side}_knee'][0], j[f'{side}_knee'][1],
+                          j[f'{side}_foot'][0], j[f'{side}_foot'][1], color_map, body_color)
 
-        # Head: 2x2 pixel square above neck
-        for dy in range(-1, 1):
-            for dx in range(-1, 1):
-                px = round(neck_top_x + dx * f)
-                py = round(neck_top_y - self.HEAD_H + dy)
-                if 0 <= px < STICK_W and 0 <= py < STICK_H:
-                    color_map[(py, px)] = body_color
-
-        # No ground line, no joint dots — just the skeleton lines
-
-        # Draw action label at top
         self._advance()
-
         return to_braille_3line_colored(color_map)
 
 

@@ -1154,55 +1154,30 @@ function stickDrawLine(
   x0: number, y0: number, x1: number, y1: number,
   colorMap: Map<string, string>, color: string
 ): void {
-  let lx = Math.round(x0), ly = Math.round(y0);
-  const ex = Math.round(x1), ey = Math.round(y1);
-  const dx = Math.abs(ex - lx), dy = Math.abs(ey - ly);
-  const sx = lx < ex ? 1 : -1, sy = ly < ey ? 1 : -1;
-  let err = dx - dy;
-  let safety = 0;
-  while (safety < 500) {
-    if (lx >= 0 && lx < STICK_W && ly >= 0 && ly < STICK_H) {
-      colorMap.set(`${ly},${lx}`, color);
+  const pts = Math.max(Math.abs(Math.round(x1) - Math.round(x0)), Math.abs(Math.round(y1) - Math.round(y0)), 1);
+  for (let i = 0; i <= pts; i++) {
+    const t = i / pts;
+    const x = Math.round(x0 + (x1 - x0) * t);
+    const y = Math.round(y0 + (y1 - y0) * t);
+    if (x >= 0 && x < STICK_W && y >= 0 && y < STICK_H) {
+      colorMap.set(`${y},${x}`, color);
     }
-    if (lx === ex && ly === ey) break;
-    const e2 = 2 * err;
-    if (e2 > -dy) { err -= dy; lx += sx; }
-    if (e2 < dx) { err += dx; ly += sy; }
-    safety++;
   }
 }
 
-function stickDrawCircle(
+function stickDrawFilledCircle(
   cx: number, cy: number, r: number,
   colorMap: Map<string, string>, color: string
 ): void {
-  const icx = Math.round(cx), icy = Math.round(cy);
-  const ir = Math.max(0, Math.round(r));
-  if (ir === 0) {
-    if (icx >= 0 && icx < STICK_W && icy >= 0 && icy < STICK_H)
-      colorMap.set(`${icy},${icx}`, color);
-    return;
-  }
-  // Fill circle using bounding box
-  for (let py = icy - ir; py <= icy + ir; py++) {
-    for (let px = icx - ir; px <= icx + ir; px++) {
-      const dist = Math.sqrt((px - cx) * (px - cx) + (py - cy) * (py - cy));
-      if (dist <= r + 0.5 && px >= 0 && px < STICK_W && py >= 0 && py < STICK_H) {
-        colorMap.set(`${py},${px}`, color);
+  const yMin = Math.max(0, Math.floor(cy - r - 0.5));
+  const yMax = Math.min(STICK_H - 1, Math.ceil(cy + r + 0.5));
+  const xMin = Math.max(0, Math.floor(cx - r - 0.5));
+  const xMax = Math.min(STICK_W - 1, Math.ceil(cx + r + 0.5));
+  for (let y = yMin; y <= yMax; y++) {
+    for (let x = xMin; x <= xMax; x++) {
+      if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r + 0.5) {
+        colorMap.set(`${y},${x}`, color);
       }
-    }
-  }
-}
-
-function stickDrawDot(
-  cx: number, cy: number,
-  colorMap: Map<string, string>, color: string
-): void {
-  for (let dx = -1; dx <= 1; dx++) {
-    for (let dy = -1; dy <= 1; dy++) {
-      const px = Math.round(cx) + dx, py = Math.round(cy) + dy;
-      if (px >= 0 && px < STICK_W && py >= 0 && py < STICK_H)
-        colorMap.set(`${py},${px}`, color);
     }
   }
 }
@@ -1236,177 +1211,199 @@ function toBraille3LineColored(colorMap: Map<string, string>): string {
   return lines.join("\n");
 }
 
+// Pose: short field names matching the verified prototype
+// ls=left_shoulder, le=left_elbow, rs=right_shoulder, re=right_elbow
+// lh=left_hip, lk=left_knee, rh=right_hip, rk=right_knee
+// tl=torso_lean, oy=offset_y, f=facing
 interface StickPose {
-  l_shoulder: number; l_elbow: number;
-  r_shoulder: number; r_elbow: number;
-  l_hip: number; l_knee: number;
-  r_hip: number; r_knee: number;
-  torso_lean: number; offset_y: number;
+  ls: number; le: number; rs: number; re: number;
+  lh: number; lk: number; rh: number; rk: number;
+  tl: number; oy: number; f: number;
 }
 
-const STICK_ACTIONS: Record<string, StickPose[]> = {
-  idle: [
-    { l_shoulder: 15, l_elbow: -10, r_shoulder: -15, r_elbow: 10,
-      l_hip: -5, l_knee: 0, r_hip: 5, r_knee: 0,
-      torso_lean: 0, offset_y: 0 },
-    { l_shoulder: -10, l_elbow: 10, r_shoulder: 10, r_elbow: -10,
-      l_hip: 5, l_knee: 0, r_hip: -5, r_knee: 0,
-      torso_lean: 0, offset_y: 0 },
-  ],
-  walk: [
-    { l_shoulder: -30, l_elbow: -20, r_shoulder: 30, r_elbow: 15,
-      l_hip: 25, l_knee: -10, r_hip: -25, r_knee: 5,
-      torso_lean: 3, offset_y: 0 },
-    { l_shoulder: 0, l_elbow: -5, r_shoulder: 0, r_elbow: 5,
-      l_hip: 0, l_knee: 0, r_hip: 0, r_knee: -15,
-      torso_lean: 2, offset_y: -0.5 },
-    { l_shoulder: 30, l_elbow: 15, r_shoulder: -30, r_elbow: -20,
-      l_hip: -25, l_knee: 5, r_hip: 25, r_knee: -10,
-      torso_lean: 3, offset_y: 0 },
-    { l_shoulder: 0, l_elbow: 5, r_shoulder: 0, r_elbow: -5,
-      l_hip: 0, l_knee: -15, r_hip: 0, r_knee: 0,
-      torso_lean: 2, offset_y: -0.5 },
-  ],
-  run: [
-    { l_shoulder: -50, l_elbow: -40, r_shoulder: 50, r_elbow: 30,
-      l_hip: 40, l_knee: -20, r_hip: -40, r_knee: 15,
-      torso_lean: 8, offset_y: -0.8 },
-    { l_shoulder: 50, l_elbow: 30, r_shoulder: -50, r_elbow: -40,
-      l_hip: -40, l_knee: 15, r_hip: 40, r_knee: -20,
-      torso_lean: 8, offset_y: -0.8 },
-  ],
-  jump: [
-    { l_shoulder: 15, l_elbow: -10, r_shoulder: -15, r_elbow: 10,
-      l_hip: 15, l_knee: -35, r_hip: -15, r_knee: -35,
-      torso_lean: 0, offset_y: 1.5 },
-    { l_shoulder: -60, l_elbow: -30, r_shoulder: 60, r_elbow: 30,
-      l_hip: -10, l_knee: 5, r_hip: 10, r_knee: 5,
-      torso_lean: -5, offset_y: -3.5 },
-    { l_shoulder: -80, l_elbow: -20, r_shoulder: 80, r_elbow: 20,
-      l_hip: -5, l_knee: 0, r_hip: 5, r_knee: 0,
-      torso_lean: -3, offset_y: -3.0 },
-    { l_shoulder: -40, l_elbow: -10, r_shoulder: 40, r_elbow: 10,
-      l_hip: 0, l_knee: 0, r_hip: 0, r_knee: 0,
-      torso_lean: -2, offset_y: -1.5 },
-    { l_shoulder: 10, l_elbow: -5, r_shoulder: -10, r_elbow: 5,
-      l_hip: 10, l_knee: -25, r_hip: -10, r_knee: -25,
-      torso_lean: 0, offset_y: 1.0 },
-    { l_shoulder: 10, l_elbow: -5, r_shoulder: -10, r_elbow: 5,
-      l_hip: 5, l_knee: -10, r_hip: -5, r_knee: -10,
-      torso_lean: 0, offset_y: 0.5 },
-  ],
-  sit: [
-    { l_shoulder: 20, l_elbow: -30, r_shoulder: -20, r_elbow: 30,
-      l_hip: -60, l_knee: -70, r_hip: 60, r_knee: -70,
-      torso_lean: 0, offset_y: 2.5 },
-    { l_shoulder: 25, l_elbow: -25, r_shoulder: -25, r_elbow: 25,
-      l_hip: -65, l_knee: -75, r_hip: 65, r_knee: -75,
-      torso_lean: 0, offset_y: 2.8 },
-  ],
-  wave: [
-    { l_shoulder: 10, l_elbow: -5, r_shoulder: -120, r_elbow: -100,
-      l_hip: -5, l_knee: 0, r_hip: 5, r_knee: 0,
-      torso_lean: 0, offset_y: 0 },
-    { l_shoulder: 10, l_elbow: -5, r_shoulder: -120, r_elbow: -50,
-      l_hip: -5, l_knee: 0, r_hip: 5, r_knee: 0,
-      torso_lean: 0, offset_y: 0 },
-    { l_shoulder: 10, l_elbow: -5, r_shoulder: -120, r_elbow: -100,
-      l_hip: -5, l_knee: 0, r_hip: 5, r_knee: 0,
-      torso_lean: 0, offset_y: 0 },
-    { l_shoulder: 10, l_elbow: -5, r_shoulder: -120, r_elbow: -50,
-      l_hip: -5, l_knee: 0, r_hip: 5, r_knee: 0,
-      torso_lean: 0, offset_y: 0 },
-  ],
-  kick: [
-    { l_shoulder: 15, l_elbow: -10, r_shoulder: -15, r_elbow: 10,
-      l_hip: -5, l_knee: 0, r_hip: 5, r_knee: 0,
-      torso_lean: 0, offset_y: 0 },
-    { l_shoulder: 30, l_elbow: -15, r_shoulder: -30, r_elbow: 15,
-      l_hip: -10, l_knee: 5, r_hip: 50, r_knee: -30,
-      torso_lean: -5, offset_y: 0 },
-    { l_shoulder: 40, l_elbow: -20, r_shoulder: -40, r_elbow: 20,
-      l_hip: -15, l_knee: 5, r_hip: 80, r_knee: -10,
-      torso_lean: -8, offset_y: -0.5 },
-    { l_shoulder: 30, l_elbow: -15, r_shoulder: -30, r_elbow: 15,
-      l_hip: -10, l_knee: 5, r_hip: 50, r_knee: -30,
-      torso_lean: -5, offset_y: 0 },
-    { l_shoulder: 15, l_elbow: -10, r_shoulder: -15, r_elbow: 10,
-      l_hip: -5, l_knee: 0, r_hip: 5, r_knee: 0,
-      torso_lean: 0, offset_y: 0 },
-  ],
-  dance: [
-    { l_shoulder: -80, l_elbow: -90, r_shoulder: 30, r_elbow: 15,
-      l_hip: 20, l_knee: -5, r_hip: -20, r_knee: 5,
-      torso_lean: 5, offset_y: -0.5 },
-    { l_shoulder: 30, l_elbow: 15, r_shoulder: -80, r_elbow: -90,
-      l_hip: -20, l_knee: 5, r_hip: 20, r_knee: -5,
-      torso_lean: -5, offset_y: -0.5 },
-    { l_shoulder: -90, l_elbow: -70, r_shoulder: -90, r_elbow: -70,
-      l_hip: 15, l_knee: -15, r_hip: -15, r_knee: -15,
-      torso_lean: 0, offset_y: -1.0 },
-    { l_shoulder: 40, l_elbow: 20, r_shoulder: 40, r_elbow: 20,
-      l_hip: -25, l_knee: 10, r_hip: 25, r_knee: 10,
-      torso_lean: 0, offset_y: 0 },
-  ],
+const STICK_POSES: Record<string, StickPose> = {
+  stand:    { ls:8,   le:-5,  rs:-8,  re:5,   lh:3,   lk:0,   rh:-3,  rk:0,   tl:0,  oy:0,    f:1 },
+  walk1:    { ls:-25, le:-10, rs:25,  re:10,  lh:25,  lk:35,  rh:-25, rk:5,   tl:2,  oy:-0.5, f:1 },
+  walk2:    { ls:-5,  le:-5,  rs:5,   re:5,   lh:8,   lk:10,  rh:-8,  rk:15,  tl:1,  oy:0,    f:1 },
+  walk3:    { ls:25,  le:10,  rs:-25, re:-10, lh:-25, lk:5,   rh:25,  rk:35,  tl:2,  oy:-0.5, f:1 },
+  walk4:    { ls:5,   le:5,   rs:-5,  re:-5,  lh:-8,  lk:15,  rh:8,   rk:10,  tl:1,  oy:0,    f:1 },
+  run1:     { ls:-50, le:-60, rs:50,  re:60,  lh:45,  lk:55,  rh:-45, rk:10,  tl:6,  oy:-1.5, f:1 },
+  run2:     { ls:-10, le:-30, rs:10,  re:30,  lh:15,  lk:25,  rh:-15, rk:25,  tl:4,  oy:0,    f:1 },
+  run3:     { ls:50,  le:60,  rs:-50, re:-60, lh:-45, lk:10,  rh:45,  rk:55,  tl:6,  oy:-1.5, f:1 },
+  run4:     { ls:10,  le:30,  rs:-10, re:-30, lh:-15, lk:25,  rh:15,  rk:25,  tl:4,  oy:0,    f:1 },
+  j_crouch: { ls:10,  le:-5,  rs:-10, re:5,   lh:10,  lk:40,  rh:-10, rk:40,  tl:0,  oy:1,    f:1 },
+  j_launch: { ls:-60, le:-15, rs:60,  re:15,  lh:5,   lk:5,   rh:-5,  rk:5,   tl:-3, oy:-3,   f:1 },
+  j_air:    { ls:-80, le:-10, rs:80,  re:10,  lh:5,   lk:0,   rh:-5,  rk:0,   tl:-2, oy:-4,   f:1 },
+  j_fall:   { ls:-40, le:-10, rs:40,  re:10,  lh:5,   lk:5,   rh:-5,  rk:5,   tl:0,  oy:-2,   f:1 },
+  j_land:   { ls:10,  le:-5,  rs:-10, re:5,   lh:10,  lk:35,  rh:-10, rk:35,  tl:2,  oy:0.5,  f:1 },
+  sit_down: { ls:15,  le:-25, rs:-15, re:25,  lh:-55, lk:75,  rh:55,  rk:-75, tl:3,  oy:2,    f:1 },
+  sit_idle: { ls:20,  le:-20, rs:-20, re:20,  lh:-60, lk:80,  rh:60,  rk:-80, tl:3,  oy:2.5,  f:1 },
+  wave1:    { ls:8,   le:-5,  rs:-110,re:-90, lh:3,   lk:0,   rh:-3,  rk:0,   tl:0,  oy:0,    f:1 },
+  wave2:    { ls:8,   le:-5,  rs:-110,re:-40, lh:3,   lk:0,   rh:-3,  rk:0,   tl:0,  oy:0,    f:1 },
+  k_prep:   { ls:15,  le:-10, rs:-15, re:10,  lh:-5,  lk:0,   rh:5,   rk:5,   tl:0,  oy:0,    f:1 },
+  k_go:     { ls:30,  le:-15, rs:-30, re:15,  lh:-10, lk:0,   rh:80,  rk:-10, tl:-8, oy:-1,   f:1 },
+  k_ret:    { ls:15,  le:-10, rs:-15, re:10,  lh:-5,  lk:0,   rh:30,  rk:20,  tl:-3, oy:0,    f:1 },
+  d1:       { ls:-70, le:-80, rs:20,  re:10,  lh:15,  lk:10,  rh:-25, rk:30,  tl:5,  oy:-1,   f:1 },
+  d2:       { ls:20,  le:10,  rs:-70, re:-80, lh:-25, lk:30,  rh:15,  rk:10,  tl:-5, oy:-1,   f:1 },
 };
 
-const STICK_ACTION_NAMES = Object.keys(STICK_ACTIONS);
+// Sequences: each action is an ordered list of pose names
+const STICK_SEQUENCES: Record<string, string[]> = {
+  idle:       ["stand"],
+  look_around:["stand"],
+  walk:       ["walk1", "walk2", "walk3", "walk4"],
+  run:        ["run1", "run2", "run3", "run4"],
+  jump:       ["j_crouch", "j_launch", "j_air", "j_air", "j_fall", "j_land", "stand"],
+  sit:        ["sit_down", "sit_idle", "sit_idle", "sit_idle", "sit_down"],
+  wave:       ["wave1", "wave2", "wave1", "wave2", "stand"],
+  kick:       ["k_prep", "k_go", "k_ret", "stand"],
+  dance:      ["d1", "d2", "d1", "d2"],
+};
 
+// Speed: frames per interpolation step for each action
 const STICK_SPEED_MAP: Record<string, number> = {
-  idle: 6, walk: 4, run: 3, jump: 3, sit: 5, wave: 3, kick: 3, dance: 3,
+  idle: 8, look_around: 10, walk: 4, run: 3, jump: 3, sit: 5, wave: 4, kick: 3, dance: 3,
 };
+
+// Movement speed: pixels per tick when walking/running (0 = stationary)
+const STICK_MOVE_MAP: Record<string, number> = {
+  idle: 0, look_around: 0, walk: 0.5, run: 1.0, jump: 0, sit: 0, wave: 0, kick: 0, dance: 0,
+};
+
+// Energy tags for smart behavior
+const ENERGETIC = new Set(["run", "jump", "kick"]);
+const CALM = new Set(["idle", "look_around", "sit"]);
+
+type StickState = "idle" | "look_around" | "walk" | "run" | "jump" | "sit" | "wave" | "kick" | "dance";
 
 class StickManAnimation {
   private pose: StickPose;
-  private facing = 1;
-  private currentAction = "idle";
-  private keyframeIdx = 0;
+  private facing = 1;       // 1=right, -1=left
+  private state: StickState = "idle";
+  private seqIdx = 0;
   private framesInStep = 0;
-  private framesPerStep = 4;
+  private framesPerStep = 8;
   private fromPose: StickPose;
   private toPose: StickPose;
-  private readonly hipX = 16.0;
-  private readonly hipY = 6.0;
+  private cx = 16.0;       // character center X (moves with walking/running)
+  private energy = 0;       // -2..+2, affects action selection
+  private stateCount = 0;   // how many action cycles completed
+  private globalTick = 0;
 
-  private static readonly TORSO_LEN = 2.0;
-  private static readonly HEAD_H = 1.5;
-  private static readonly UPPER_ARM = 1.5;
-  private static readonly LOWER_ARM = 1.3;
-  private static readonly UPPER_LEG = 1.5;
+  private static readonly HEAD_R = 1.2;
+  private static readonly TORSO = 2.5;
+  private static readonly UPPER_ARM = 1.8;
+  private static readonly LOWER_ARM = 1.5;
+  private static readonly UPPER_LEG = 1.8;
   private static readonly LOWER_LEG = 1.5;
+  private static readonly GROUND = 10;
 
   constructor() {
-    this.pose = { ...STICK_ACTIONS.idle[0] };
+    this.pose = { ...STICK_POSES.stand };
     this.fromPose = { ...this.pose };
     this.toPose = { ...this.pose };
   }
 
-  private pickAction(): void {
-    const weights: Record<string, number> = {
-      idle: 3, walk: 4, run: 2, jump: 2, sit: 2, wave: 2, kick: 2, dance: 2,
+  private fk(p: StickPose): Record<string, [number, number]> {
+    const lean = (p.tl * p.f) * Math.PI / 180;
+    const f = p.f;
+    const oy = p.oy;
+    const ground = StickManAnimation.GROUND;
+    const hx = this.cx;
+    const hy = ground - StickManAnimation.UPPER_LEG - StickManAnimation.LOWER_LEG + oy;
+    const nx = hx + Math.sin(lean) * StickManAnimation.TORSO * f;
+    const ny = hy - StickManAnimation.TORSO * Math.cos(lean);
+    const hcx = nx;
+    const hcy = ny - StickManAnimation.HEAD_R - 0.5;
+
+    const joints: Record<string, [number, number]> = {
+      hip: [hx, hy], neck: [nx, ny], headCenter: [hcx, hcy],
     };
-    const choices: string[] = [];
-    for (const a of STICK_ACTION_NAMES) {
-      const w = weights[a] ?? 1;
-      for (let i = 0; i < w; i++) choices.push(a);
+
+    // Arms
+    for (const side of ["l", "r"] as const) {
+      const sa = (p[`${side}s` as keyof StickPose] as number) * Math.PI / 180;
+      const ea = (p[`${side}e` as keyof StickPose] as number) * Math.PI / 180;
+      const au = Math.PI / 2 - sa * f;
+      const ex = nx + Math.cos(au) * StickManAnimation.UPPER_ARM;
+      const ey = ny + Math.sin(au) * StickManAnimation.UPPER_ARM;
+      const wx = ex + Math.cos(au + ea) * StickManAnimation.LOWER_ARM;
+      const wy = ey + Math.sin(au + ea) * StickManAnimation.LOWER_ARM;
+      joints[`${side}_elbow`] = [ex, ey];
+      joints[`${side}_hand`] = [wx, wy];
     }
-    const action = choices[Math.floor(Math.random() * choices.length)];
-    if ((action === "walk" || action === "run" || action === "kick") && Math.random() < 0.4) {
-      this.facing *= -1;
+
+    // Legs
+    for (const side of ["l", "r"] as const) {
+      const ha = (p[`${side}h` as keyof StickPose] as number) * Math.PI / 180;
+      const ka = (p[`${side}k` as keyof StickPose] as number) * Math.PI / 180;
+      const au = Math.PI / 2 - ha * f;
+      const kx = hx + Math.cos(au) * StickManAnimation.UPPER_LEG;
+      const ky = hy + Math.sin(au) * StickManAnimation.UPPER_LEG;
+      const al = au - ka;
+      const fx = kx + Math.cos(al) * StickManAnimation.LOWER_LEG;
+      const fy = ky + Math.sin(al) * StickManAnimation.LOWER_LEG;
+      joints[`${side}_knee`] = [kx, ky];
+      joints[`${side}_foot`] = [fx, fy];
     }
-    this.currentAction = action;
-    this.keyframeIdx = 0;
-    this.framesInStep = 0;
-    this.framesPerStep = STICK_SPEED_MAP[action] ?? 4;
-    this.fromPose = { ...this.pose };
-    this.toPose = { ...STICK_ACTIONS[action][0] };
+
+    return joints;
   }
 
   private lerpPose(t: number): void {
-    const keys = Object.keys(this.fromPose) as (keyof StickPose)[];
+    const keys: (keyof StickPose)[] = ["ls","le","rs","re","lh","lk","rh","rk","tl","oy","f"];
     for (const k of keys) {
       (this.pose as any)[k] = this.fromPose[k] + (this.toPose[k] - this.fromPose[k]) * t;
     }
+  }
+
+  // Smart pet-like state machine
+  private pickNextState(): void {
+    const r = Math.random();
+    const isEnergetic = ENERGETIC.has(this.state);
+    const isCalm = CALM.has(this.state);
+
+    // Adjust energy based on last action
+    if (isEnergetic) this.energy = Math.min(2, this.energy + 1);
+    else if (isCalm) this.energy = Math.max(-2, this.energy - 1);
+
+    // Bias: after energetic → more calm; after calm → more energetic
+    let choices: StickState[];
+    if (this.energy > 0) {
+      // Tired → prefer calm
+      choices = ["idle","idle","look_around","walk","sit","wave"];
+    } else if (this.energy < 0) {
+      // Rested → prefer energetic
+      choices = ["run","jump","kick","walk","walk","dance"];
+    } else {
+      // Neutral
+      choices = ["idle","walk","walk","look_around","wave","run","jump","sit"];
+    }
+
+    // Occasionally force wave (greeting) or dance
+    if (r < 0.03) choices = ["wave"];
+    else if (r < 0.06) choices = ["dance"];
+
+    let next: StickState = choices[Math.floor(Math.random() * choices.length)];
+
+    // Direction changes
+    if ((next === "walk" || next === "run") && Math.random() < 0.4) {
+      this.facing *= -1;
+    }
+    if (next === "kick") {
+      // Kick always faces a consistent direction
+      if (Math.random() < 0.5) this.facing *= -1;
+    }
+
+    this.state = next;
+    this.seqIdx = 0;
+    this.framesInStep = 0;
+    this.framesPerStep = STICK_SPEED_MAP[next] ?? 6;
+    this.fromPose = { ...this.pose, f: this.facing };
+    const seq = STICK_SEQUENCES[next];
+    const targetPose = STICK_POSES[seq[0]];
+    this.toPose = { ...targetPose, f: this.facing };
+    this.stateCount++;
   }
 
   private advance(): void {
@@ -1415,106 +1412,59 @@ class StickManAnimation {
       this.pose = { ...this.toPose };
       this.fromPose = { ...this.pose };
       this.framesInStep = 0;
-      const keyframes = STICK_ACTIONS[this.currentAction];
-      this.keyframeIdx++;
-      if (this.keyframeIdx >= keyframes.length) {
-        this.pickAction();
+      const seq = STICK_SEQUENCES[this.state];
+      this.seqIdx++;
+      if (this.seqIdx >= seq.length) {
+        this.pickNextState();
       } else {
-        this.toPose = { ...keyframes[this.keyframeIdx] };
+        const targetPose = STICK_POSES[seq[this.seqIdx]];
+        this.toPose = { ...targetPose, f: this.facing };
       }
     }
   }
 
-  private fk(p: StickPose): Record<string, [number, number]> {
-    const leanRad = (p.torso_lean * this.facing) * Math.PI / 180;
-    const oy = p.offset_y;
-    const hx = this.hipX, hy = this.hipY + oy;
-    const torsoAngle = -Math.PI / 2 + leanRad;
-    const nx = hx + StickManAnimation.TORSO_LEN * Math.cos(torsoAngle);
-    const ny = hy + StickManAnimation.TORSO_LEN * Math.sin(torsoAngle);
-    const shoulderBase = torsoAngle + Math.PI / 2;
-
-    const laAngle = shoulderBase + (p.l_shoulder * this.facing) * Math.PI / 180;
-    const leX = nx + StickManAnimation.UPPER_ARM * Math.cos(laAngle);
-    const leY = ny + StickManAnimation.UPPER_ARM * Math.sin(laAngle);
-    const la2Angle = laAngle + (p.l_elbow * this.facing) * Math.PI / 180;
-    const lhX = leX + StickManAnimation.LOWER_ARM * Math.cos(la2Angle);
-    const lhY = leY + StickManAnimation.LOWER_ARM * Math.sin(la2Angle);
-
-    const raAngle = shoulderBase + (p.r_shoulder * this.facing) * Math.PI / 180;
-    const reX = nx + StickManAnimation.UPPER_ARM * Math.cos(raAngle);
-    const reY = ny + StickManAnimation.UPPER_ARM * Math.sin(raAngle);
-    const ra2Angle = raAngle + (p.r_elbow * this.facing) * Math.PI / 180;
-    const rhX = reX + StickManAnimation.LOWER_ARM * Math.cos(ra2Angle);
-    const rhY = reY + StickManAnimation.LOWER_ARM * Math.sin(ra2Angle);
-
-    const legBase = Math.PI / 2;
-
-    const llAngle = legBase + (p.l_hip * this.facing) * Math.PI / 180;
-    const lkX = hx + StickManAnimation.UPPER_LEG * Math.cos(llAngle);
-    const lkY = hy + StickManAnimation.UPPER_LEG * Math.sin(llAngle);
-    const ll2Angle = llAngle + (p.l_knee * this.facing) * Math.PI / 180;
-    const lfX = lkX + StickManAnimation.LOWER_LEG * Math.cos(ll2Angle);
-    const lfY = lkY + StickManAnimation.LOWER_LEG * Math.sin(ll2Angle);
-
-    const rlAngle = legBase + (p.r_hip * this.facing) * Math.PI / 180;
-    const rkX = hx + StickManAnimation.UPPER_LEG * Math.cos(rlAngle);
-    const rkY = hy + StickManAnimation.UPPER_LEG * Math.sin(rlAngle);
-    const rl2Angle = rlAngle + (p.r_knee * this.facing) * Math.PI / 180;
-    const rfX = rkX + StickManAnimation.LOWER_LEG * Math.cos(rl2Angle);
-    const rfY = rkY + StickManAnimation.LOWER_LEG * Math.sin(rl2Angle);
-
-    return {
-      hip: [hx, hy], neck: [nx, ny],
-      l_elbow: [leX, leY], l_hand: [lhX, lhY],
-      r_elbow: [reX, reY], r_hand: [rhX, rhY],
-      l_knee: [lkX, lkY], l_foot: [lfX, lfY],
-      r_knee: [rkX, rkY], r_foot: [rfX, rfY],
-    };
-  }
-
   tick(): string {
+    this.globalTick++;
     let t = this.framesPerStep > 0 ? this.framesInStep / this.framesPerStep : 1.0;
     t = t * t * (3 - 2 * t); // smoothstep
     this.lerpPose(t);
 
-    const j = this.fk(this.pose);
-    const colorMap = new Map<string, string>();
-    const bodyColor = "\x1b[38;5;46m"; // bright green — one color for whole figure
+    // Movement: walk/run moves the character across the canvas
+    const moveSpeed = STICK_MOVE_MAP[this.state] ?? 0;
+    this.cx += moveSpeed * this.facing;
+    // Bounce at canvas edges
+    if (this.cx < 6) { this.cx = 6; this.facing = 1; this.pose.f = 1; }
+    if (this.cx > 26) { this.cx = 26; this.facing = -1; this.pose.f = -1; }
 
-    const nx = j.neck[0], ny = j.neck[1];
-    const f = this.facing;
-
-    // Skeleton segments (single-pixel lines only, no dots)
-    stickDrawLine(j.hip[0], j.hip[1], nx, ny, colorMap, bodyColor);
-    stickDrawLine(nx, ny, j.l_elbow[0], j.l_elbow[1], colorMap, bodyColor);
-    stickDrawLine(j.l_elbow[0], j.l_elbow[1], j.l_hand[0], j.l_hand[1], colorMap, bodyColor);
-    stickDrawLine(nx, ny, j.r_elbow[0], j.r_elbow[1], colorMap, bodyColor);
-    stickDrawLine(j.r_elbow[0], j.r_elbow[1], j.r_hand[0], j.r_hand[1], colorMap, bodyColor);
-    stickDrawLine(j.hip[0], j.hip[1], j.l_knee[0], j.l_knee[1], colorMap, bodyColor);
-    stickDrawLine(j.l_knee[0], j.l_knee[1], j.l_foot[0], j.l_foot[1], colorMap, bodyColor);
-    stickDrawLine(j.hip[0], j.hip[1], j.r_knee[0], j.r_knee[1], colorMap, bodyColor);
-    stickDrawLine(j.r_knee[0], j.r_knee[1], j.r_foot[0], j.r_foot[1], colorMap, bodyColor);
-
-    // Neck stub (short line from neck upward)
-    const leanRad = (this.pose.torso_lean * f) * Math.PI / 180;
-    const torsoAngle = -Math.PI / 2 + leanRad;
-    const neckTopX = nx + 0.5 * Math.cos(torsoAngle);
-    const neckTopY = ny + 0.5 * Math.sin(torsoAngle);
-    stickDrawLine(nx, ny, neckTopX, neckTopY, colorMap, bodyColor);
-
-    // Head: 2x2 pixel square above neck
-    for (let dy = -1; dy < 1; dy++) {
-      for (let dx = -1; dx < 1; dx++) {
-        const px = Math.round(neckTopX + dx * f);
-        const py = Math.round(neckTopY - StickManAnimation.HEAD_H + dy);
-        if (px >= 0 && px < STICK_W && py >= 0 && py < STICK_H) {
-          colorMap.set(`${py},${px}`, bodyColor);
-        }
-      }
+    // Idle look-around: subtle torso lean variation
+    if (this.state === "idle" || this.state === "look_around") {
+      const wobble = Math.sin(this.globalTick * 0.15) * 2;
+      this.pose.tl = this.pose.tl * 0.8 + wobble * 0.2;
     }
 
-    // No ground line, no joint dots — just the skeleton lines
+    const j = this.fk(this.pose);
+    const colorMap = new Map<string, string>();
+    const bodyColor = "\x1b[38;5;46m"; // bright green
+
+    // Draw head (filled circle)
+    const hcx = j.headCenter[0], hcy = j.headCenter[1];
+    stickDrawFilledCircle(hcx, hcy, StickManAnimation.HEAD_R, colorMap, bodyColor);
+
+    // Draw neck line
+    stickDrawLine(j.neck[0], j.neck[1], hcx, hcy, colorMap, bodyColor);
+
+    // Draw torso
+    stickDrawLine(j.hip[0], j.hip[1], j.neck[0], j.neck[1], colorMap, bodyColor);
+
+    // Draw arms and legs
+    for (const side of ["l", "r"]) {
+      // Arm
+      stickDrawLine(j.neck[0], j.neck[1], j[`${side}_elbow`][0], j[`${side}_elbow`][1], colorMap, bodyColor);
+      stickDrawLine(j[`${side}_elbow`][0], j[`${side}_elbow`][1], j[`${side}_hand`][0], j[`${side}_hand`][1], colorMap, bodyColor);
+      // Leg
+      stickDrawLine(j.hip[0], j.hip[1], j[`${side}_knee`][0], j[`${side}_knee`][1], colorMap, bodyColor);
+      stickDrawLine(j[`${side}_knee`][0], j[`${side}_knee`][1], j[`${side}_foot`][0], j[`${side}_foot`][1], colorMap, bodyColor);
+    }
 
     this.advance();
     return toBraille3LineColored(colorMap);
